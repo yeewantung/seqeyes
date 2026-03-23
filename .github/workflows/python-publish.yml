@@ -4,6 +4,15 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      publish_target:
+        description: "Where to publish: pypi or testpypi"
+        type: choice
+        required: true
+        default: "testpypi"
+        options:
+          - testpypi
+          - pypi
 
 jobs:
   build-wheels:
@@ -15,8 +24,10 @@ jobs:
         include:
           - os: windows-latest
             qt_arch: win64_msvc2019_64
+            plat_name: win_amd64
           - os: macos-latest
             qt_arch: clang_64
+            plat_name: macosx_11_0_arm64
           - os: ubuntu-latest
             qt_arch: gcc_64
 
@@ -92,9 +103,14 @@ jobs:
 
       # ---- Build Python wheel (pure setuptools, binary now present) ----
       - name: Build wheel
+        shell: bash
         run: |
           pip install build
-          python -m build --wheel --outdir wheelhouse
+          if [ -n "${{ matrix.plat_name }}" ]; then
+            python -m build --wheel --outdir wheelhouse --config-setting="--build-option=--plat-name=${{ matrix.plat_name }}"
+          else
+            python -m build --wheel --outdir wheelhouse
+          fi
 
       # ---- Repair wheel: bundle Qt shared libraries ----
       - name: Repair wheel (Linux – auditwheel)
@@ -132,6 +148,8 @@ jobs:
       url: https://pypi.org/project/seqeyes/
     permissions:
       id-token: write
+    env:
+      PUBLISH_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_target || 'pypi' }}
 
     steps:
       - name: Download all wheel artifacts
@@ -144,7 +162,9 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
+          repository-url: ${{ env.PUBLISH_TARGET == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
           # TODO: finalize by parent repo owner – configure PyPI trusted publisher
           # or set the PYPI_API_TOKEN secret in repo settings.
           # password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
+          verbose: true
