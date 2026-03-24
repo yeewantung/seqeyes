@@ -25,7 +25,7 @@ local_scheme = "no-local-version"
 where = ["python"]
 
 [tool.setuptools.package-data]
-seqeyes = ["bin/*", "py.typed"]
+seqeyes = ["bin/**", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["python/tests"]

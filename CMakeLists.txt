@@ -119,8 +119,16 @@ set(HEADER_LIST
 
 include_directories(${PULSEQ_DIR} ${QCUSTOM_PLOT_DIR})
 
-# On Windows, build as a GUI application (no separate console window)
-add_executable(${PROJECT_NAME} WIN32 ${SRC_LIST} ${HEADER_LIST} ${UI_LIST} ${EXTERNAL_LIST})
+add_executable(${PROJECT_NAME} ${SRC_LIST} ${HEADER_LIST} ${UI_LIST} ${EXTERNAL_LIST})
+
+# Build as a GUI app on desktop platforms so launching the packaged binary
+# doesn't open an extra console window or lose bundle metadata on macOS.
+if(WIN32)
+    set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
+if(APPLE)
+    set_target_properties(${PROJECT_NAME} PROPERTIES MACOSX_BUNDLE TRUE)
+endif()
 
 # C++ unit tests (disabled when building the Python wheel via scikit-build-core)
 option(SEQEYES_BUILD_TESTS "Build C++ unit tests" ON)
@@ -167,19 +175,14 @@ set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT $
 # viewer.py can find it without requiring a separate install.
 # ──────────────────────────────────────────────────────────────────────────────
 
-# On macOS, set the install RPATH so delocate can resolve Qt frameworks that
-# are bundled alongside the binary under seqeyes/bin/QtFrameworks/.
-if(APPLE)
-    set_target_properties(${PROJECT_NAME} PROPERTIES
-        INSTALL_RPATH "@executable_path/QtFrameworks"
-    )
-endif()
-
-install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION seqeyes/bin)
+install(TARGETS ${PROJECT_NAME}
+    RUNTIME DESTINATION seqeyes/bin
+    BUNDLE DESTINATION seqeyes/bin
+)
 
 # Bundle Qt runtime dependencies so the wheel is self-contained.
-# On Windows we use windeployqt; on other platforms the wheel-repair tools
-# (auditwheel on Linux, delocate on macOS) are invoked in CI.
+# On Windows and macOS, use Qt's deployment tooling during install so the
+# wheel contains the runtime pieces users need without a separate Qt install.
 if(WIN32)
     get_target_property(_qmake Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(_qt_bin_dir "${_qmake}" DIRECTORY)
@@ -199,4 +202,18 @@ if(WIN32)
             message(WARNING \"windeployqt exited with code \${_wdqt_result}\")
         endif()
     ")
+endif()
+if(APPLE)
+    qt_generate_deploy_script(
+        TARGET ${PROJECT_NAME}
+        OUTPUT_SCRIPT SEQEYES_MACOS_DEPLOY_SCRIPT
+        CONTENT "
+qt_deploy_runtime_dependencies(
+    EXECUTABLE \"seqeyes/bin/$<TARGET_FILE_NAME:${PROJECT_NAME}>.app\"
+    GENERATE_QT_CONF
+    VERBOSE
+)
+"
+    )
+    install(SCRIPT ${SEQEYES_MACOS_DEPLOY_SCRIPT})
 endif()

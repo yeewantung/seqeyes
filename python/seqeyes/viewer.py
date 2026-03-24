@@ -10,8 +10,15 @@ import tempfile
 from pathlib import Path
 
 _exe_name = "seqeyes.exe" if sys.platform == "win32" else "seqeyes"
-# Bundled binary installed by the Python wheel alongside this module.
-_BUNDLED_EXE = Path(__file__).parent / "bin" / _exe_name
+_pkg_dir = Path(__file__).parent
+
+if sys.platform == "darwin":
+    # macOS wheels ship a self-contained app bundle so Qt plugins/frameworks
+    # resolve via the bundle layout rather than the user's system.
+    _BUNDLED_EXE = _pkg_dir / "bin" / "seqeyes.app" / "Contents" / "MacOS" / _exe_name
+else:
+    # Bundled binary installed by the Python wheel alongside this module.
+    _BUNDLED_EXE = _pkg_dir / "bin" / _exe_name
 
 
 def _find_executable() -> str:

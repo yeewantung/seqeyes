@@ -1,4 +1,4 @@
-name: Python Publish
+﻿name: Python Publish
 
 on:
   release:
@@ -49,21 +49,6 @@ jobs:
           arch: ${{ matrix.qt_arch }}
           cache: true
 
-      # ---- Set Qt environment variables (macOS only, for delocate) ----
-      # Derive QT_ROOT_DIR from QML2_IMPORT_PATH since install-qt-action may
-      # not export QT_ROOT_DIR reliably in all cache/version combinations.
-      - name: Set Qt environment for macOS
-        if: runner.os == 'macOS'
-        run: |
-          if [ -n "${QML2_IMPORT_PATH}" ]; then
-            QT_ROOT="${QML2_IMPORT_PATH%/qml}"
-          else
-            QT_ROOT="$(qmake -query QT_INSTALL_PREFIX)"
-          fi
-          echo "QT_ROOT_DIR=${QT_ROOT}" >> $GITHUB_ENV
-          echo "DYLD_LIBRARY_PATH=${QT_ROOT}/lib:${DYLD_LIBRARY_PATH}" >> $GITHUB_ENV
-          echo "QT_PLUGIN_PATH=${QT_ROOT}/plugins:${QT_PLUGIN_PATH}" >> $GITHUB_ENV
-
       # ---- MSVC (Windows only) ----
       - name: Setup MSVC
         if: runner.os == 'Windows'
@@ -88,19 +73,6 @@ jobs:
       - name: Install binary into package tree
         run: cmake --install _cmake_build --config Release
 
-      # ---- Copy Qt frameworks so delocate can bundle them into the wheel ----
-      # The seqeyes binary's RPATH is set to @executable_path/QtFrameworks,
-      # so delocate resolves Qt*.framework dependencies from that subdirectory.
-      - name: Copy Qt frameworks for macOS wheel
-        if: runner.os == 'macOS'
-        run: |
-          QT_FW_DST="${{ github.workspace }}/python/seqeyes/bin/QtFrameworks"
-          mkdir -p "${QT_FW_DST}"
-          for fw in QtCore QtGui QtWidgets QtPrintSupport; do
-            cp -R "${QT_ROOT_DIR}/lib/${fw}.framework" "${QT_FW_DST}/"
-          done
-          echo "DYLD_FRAMEWORK_PATH=${QT_FW_DST}:${DYLD_FRAMEWORK_PATH}" >> $GITHUB_ENV
-
       # ---- Build Python wheel (pure setuptools, binary now present) ----
       - name: Build wheel
         shell: bash
@@ -113,19 +85,20 @@ jobs:
           fi
 
       # ---- Repair wheel: bundle Qt shared libraries ----
-      - name: Repair wheel (Linux – auditwheel)
+      - name: Repair wheel (Linux 鈥?auditwheel)
         if: runner.os == 'Linux'
         run: |
           pip install auditwheel
           auditwheel repair wheelhouse/*.whl -w dist/
 
-      - name: Repair wheel (macOS – delocate)
+      - name: Copy wheel (macOS — skip delocate)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
-          pip install delocate
-          delocate-wheel -w dist/ wheelhouse/*.whl
+          mkdir -p dist
+          cp wheelhouse/*.whl dist/
 
-      - name: Copy wheel (Windows – windeployqt already ran via cmake install)
+      - name: Copy wheel (Windows 鈥?windeployqt already ran via cmake install)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -163,8 +136,10 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: ${{ env.PUBLISH_TARGET == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
-          # TODO: finalize by parent repo owner – configure PyPI trusted publisher
+          # TODO: finalize by parent repo owner 鈥?configure PyPI trusted publisher
           # or set the PYPI_API_TOKEN secret in repo settings.
           # password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
           verbose: true
+
+
