@@ -6,7 +6,13 @@ on:
     types: [published]
 
 jobs:
+  version_guard:
+    uses: ./.github/workflows/_release-version-guard.yml
+    with:
+      release_tag: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+
   build-appimage:
+    needs: version_guard
     uses: ./.github/workflows/_appimage-build.yml
 
   upload-release:

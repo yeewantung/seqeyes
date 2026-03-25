@@ -15,7 +15,13 @@ on:
           - pypi
 
 jobs:
+  version_guard:
+    uses: ./.github/workflows/_release-version-guard.yml
+    with:
+      release_tag: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+
   build-wheels:
+    needs: version_guard
     name: Build wheel on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -127,6 +133,7 @@ jobs:
           path: dist/*.whl
 
   build-linux-appimage:
+    needs: version_guard
     uses: ./.github/workflows/_appimage-build.yml
 
   build-linux-wheel-from-appimage:

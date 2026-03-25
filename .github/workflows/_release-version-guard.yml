@@ -1,0 +1,53 @@
+name: Release Version Guard (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "Release tag name (for example: v0.0.4). Leave empty to skip strict check."
+        required: false
+        type: string
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate seqeyes version matches release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_TAG="${{ inputs.release_tag }}"
+          if [ -z "${RELEASE_TAG}" ]; then
+            echo "::notice::No release tag provided. Skipping strict version consistency check."
+            exit 0
+          fi
+
+          HEADER_PATH="src/seqeyes_version.h"
+          if [ ! -f "${HEADER_PATH}" ]; then
+            echo "::error::Missing ${HEADER_PATH}"
+            exit 1
+          fi
+
+          PLAIN_VERSION="$(grep -E '^[[:space:]]*#define[[:space:]]+SEQEYES_APP_VERSION_PLAIN[[:space:]]+\"[^\"]+\"' "${HEADER_PATH}" | head -n1 | sed -E 's/.*\"([^\"]+)\".*/\1/')"
+          if [ -z "${PLAIN_VERSION}" ]; then
+            echo "::error::Could not parse SEQEYES_APP_VERSION_PLAIN from ${HEADER_PATH}"
+            exit 1
+          fi
+
+          EXPECTED_TAG="v${PLAIN_VERSION}"
+          echo "release tag: ${RELEASE_TAG}"
+          echo "header plain version: ${PLAIN_VERSION}"
+          echo "expected tag: ${EXPECTED_TAG}"
+
+          if [ "${RELEASE_TAG}" != "${EXPECTED_TAG}" ]; then
+            echo "::error::Version mismatch. release tag='${RELEASE_TAG}', header plain='${PLAIN_VERSION}', expected tag='${EXPECTED_TAG}'."
+            exit 1
+          fi
+
+          echo "Version consistency check passed."
