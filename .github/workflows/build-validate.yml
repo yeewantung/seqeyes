@@ -1,4 +1,4 @@
-name: CI
+name: Build & Validate (Windows + Linux)
 
 on:
   push:
@@ -113,3 +113,53 @@ jobs:
       - name: Run Performance Test
         run: |
           python test/test_perf_zoom.py --bin-dir runtime/seqeyes --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
+
+  package_windows_artifact:
+    needs: [build_windows, visual_regression, headless_load, performance]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download Runtime Zip
+        uses: actions/download-artifact@v4
+        with:
+          name: seqeyes-ci-runtime
+          path: .
+
+      - name: Create CI Windows Package
+        shell: pwsh
+        run: |
+          Copy-Item -Path seqeyes-ci-runtime.zip -Destination seqeyes-latest-win64.zip -Force
+
+      - name: Upload Windows CI Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seqeyes-latest-win64
+          path: seqeyes-latest-win64.zip
+
+  cleanup_internal_artifacts:
+    if: ${{ always() }}
+    needs: [build_windows, build_linux, visual_regression, headless_load, performance, package_windows_artifact]
+    runs-on: windows-latest
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Delete Internal Runtime Artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $repo = "${{ github.repository }}"
+          $runId = "${{ github.run_id }}"
+          $ids = gh api "repos/$repo/actions/runs/$runId/artifacts" --paginate --jq '.artifacts[] | select(.name=="seqeyes-ci-runtime") | .id'
+          if (-not $ids) {
+            Write-Host "No internal runtime artifact found to delete."
+            exit 0
+          }
+          foreach ($id in $ids) {
+            gh api -X DELETE "repos/$repo/actions/artifacts/$id"
+            Write-Host "Deleted internal artifact id=$id"
+          }
