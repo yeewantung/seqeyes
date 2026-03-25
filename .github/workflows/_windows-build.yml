@@ -1,0 +1,72 @@
+name: Build Windows Runtime (Reusable)
+
+on:
+  workflow_call:
+    outputs:
+      artifact_name:
+        description: "Name of the Windows runtime artifact"
+        value: ${{ jobs.build.outputs.artifact_name }}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    outputs:
+      artifact_name: ${{ steps.set-artifact.outputs.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6.5.3 (MSVC 2019)
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: "6.5.3"
+          arch: "win64_msvc2019_64"
+          cache: true
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: "v0.10.0"
+
+      - name: Configure (CMake)
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+
+      - name: Build
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+        run: cmake --build build --config Release
+
+      - name: Print sccache stats
+        run: sccache --show-stats
+
+      - name: Run windeployqt
+        run: |
+          cd build
+          windeployqt seqeyes.exe
+
+      - name: Pack Runtime Zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path runtime -Force | Out-Null
+          xcopy build runtime\seqeyes /E /I
+          Compress-Archive -Path runtime\seqeyes -DestinationPath seqeyes-ci-runtime.zip -Force
+
+      - name: Set artifact name
+        id: set-artifact
+        shell: pwsh
+        run: |
+          "name=seqeyes-ci-runtime" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Runtime Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: seqeyes-ci-runtime
+          path: seqeyes-ci-runtime.zip

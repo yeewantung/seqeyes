@@ -1,4 +1,4 @@
-﻿name: Python Publish
+name: Python Publish
 
 on:
   release:
@@ -105,14 +105,14 @@ jobs:
           fi
 
       # ---- Repair wheel: bundle Qt shared libraries ----
-      - name: Copy wheel (macOS — skip delocate)
+      - name: Copy wheel (macOS - skip delocate)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           mkdir -p dist
           cp wheelhouse/*.whl dist/
 
-      - name: Copy wheel (Windows 鈥?windeployqt already ran via cmake install)
+      - name: Copy wheel (Windows - windeployqt already ran via cmake install)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -191,10 +191,11 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: ${{ env.PUBLISH_TARGET == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
-          # TODO: finalize by parent repo owner 鈥?configure PyPI trusted publisher
+          # TODO: finalize by parent repo owner - configure PyPI trusted publisher
           # or set the PYPI_API_TOKEN secret in repo settings.
           # password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
           verbose: true
+
 
 

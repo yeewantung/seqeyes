@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
+      - "LICENSE"
+      - ".gitignore"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
+      - "LICENSE"
+      - ".gitignore"
+
+jobs:
+  build_windows:
+    uses: ./.github/workflows/_windows-build.yml
+
+  build_linux:
+    uses: ./.github/workflows/_appimage-build.yml
+
+  visual_regression:
+    needs: build_windows
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Runtime Zip
+        uses: actions/download-artifact@v4
+        with:
+          name: seqeyes-ci-runtime
+          path: .
+
+      - name: Extract Runtime
+        shell: pwsh
+        run: |
+          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
+
+      - name: Setup Python Dependencies
+        run: pip install Pillow gdown pyyaml
+
+      - name: Download Baselines from Google Drive
+        env:
+          GDRIVE_BASELINE_FOLDER_ID: "1Lhbd8zXQlI6z_o0f6HQPDb1umb_zLush"
+        run: |
+          mkdir test/baselines -ErrorAction SilentlyContinue
+          gdown --folder "https://drive.google.com/drive/folders/$env:GDRIVE_BASELINE_FOLDER_ID" -O test/baselines/
+
+      - name: Run Visual Regression Test
+        run: |
+          python test/test_visual_regression.py --bin-dir runtime/seqeyes --threshold 0.005 --changed-threshold 0.0001
+
+      - name: Upload Visual Diff Artifacts on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-diffs
+          path: |
+            test/snapshots/*.png
+            test/baselines/*.png
+
+  headless_load:
+    needs: build_windows
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Runtime Zip
+        uses: actions/download-artifact@v4
+        with:
+          name: seqeyes-ci-runtime
+          path: .
+
+      - name: Extract Runtime
+        shell: pwsh
+        run: |
+          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
+
+      - name: Run Headless Load Test
+        run: python test/test_load_all.py --bin-dir runtime/seqeyes
+
+  performance:
+    needs: build_windows
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Runtime Zip
+        uses: actions/download-artifact@v4
+        with:
+          name: seqeyes-ci-runtime
+          path: .
+
+      - name: Extract Runtime
+        shell: pwsh
+        run: |
+          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
+
+      - name: Run Performance Test
+        run: |
+          python test/test_perf_zoom.py --bin-dir runtime/seqeyes --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
