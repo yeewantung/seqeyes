@@ -7,6 +7,8 @@ A brief overview of SeqEyes can be found at the  [2026 pulseq virtual meeting](h
 
 ## Install
 Download the compiled windows exe from [github releases](https://github.com/xingwangyong/seqeyes/releases), or from [artifacts in github actions](https://github.com/xingwangyong/seqeyes/actions). The latter is more frequently updated.
+For Python users on Windows/macOS, install with `pip install seqeyes`.
+For Linux GUI users, download the AppImage from GitHub Releases.
 
 ## Usage
 - Open GUI, load .seq file
@@ -36,7 +38,7 @@ seqeyes.seqeyes(seq)
 ## Build Instructions
 Qt6 libraries and cmake are required to build the project.
 ### Linux
-Use the build.sh script to build the project.
+Use the build.sh script to build the project, or use the AppImage from GitHub Releases.
 ### Windows
 ```
 cmake -S . -B out/build/x64-Release
@@ -52,7 +54,6 @@ C:\Qt\6.5.3\msvc2019_64\bin\windeployqt.exe .\seqeyes.exe
 ## Known Issues
 
 Please see [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for a list of known issues and limitations.
-
 
 
 

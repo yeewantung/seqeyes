@@ -127,7 +127,11 @@ if(WIN32)
     set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 if(APPLE)
-    set_target_properties(${PROJECT_NAME} PROPERTIES MACOSX_BUNDLE TRUE)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE TRUE
+        INSTALL_RPATH "@executable_path/../Frameworks"
+        BUILD_WITH_INSTALL_RPATH FALSE
+    )
 endif()
 
 # C++ unit tests (disabled when building the Python wheel via scikit-build-core)
@@ -204,16 +208,22 @@ if(WIN32)
     ")
 endif()
 if(APPLE)
-    qt_generate_deploy_script(
-        TARGET ${PROJECT_NAME}
-        OUTPUT_SCRIPT SEQEYES_MACOS_DEPLOY_SCRIPT
-        CONTENT "
-qt_deploy_runtime_dependencies(
-    EXECUTABLE \"seqeyes/bin/$<TARGET_FILE_NAME:${PROJECT_NAME}>.app\"
-    GENERATE_QT_CONF
-    VERBOSE
-)
-"
-    )
-    install(SCRIPT ${SEQEYES_MACOS_DEPLOY_SCRIPT})
+    get_target_property(_qmake Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(_qt_bin_dir "${_qmake}" DIRECTORY)
+    find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${_qt_bin_dir}" REQUIRED)
+    install(CODE "
+        set(_seqeyes_app \"\${CMAKE_INSTALL_PREFIX}/seqeyes/bin/seqeyes.app\")
+        message(STATUS \"Running macdeployqt to bundle Qt6 runtime into \${_seqeyes_app}...\")
+        execute_process(
+            COMMAND \"${MACDEPLOYQT_EXECUTABLE}\"
+                \"\${_seqeyes_app}\"
+                -always-overwrite
+                -no-strip
+                -verbose=1
+            RESULT_VARIABLE _macdeployqt_result
+        )
+        if(NOT _macdeployqt_result EQUAL 0)
+            message(FATAL_ERROR \"macdeployqt exited with code \${_macdeployqt_result}\")
+        endif()
+    ")
 endif()

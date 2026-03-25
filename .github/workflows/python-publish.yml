@@ -28,13 +28,23 @@ jobs:
           - os: macos-latest
             qt_arch: clang_64
             plat_name: macosx_11_0_arm64
-          - os: ubuntu-latest
-            qt_arch: gcc_64
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Derive TestPyPI version
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_target == 'testpypi'
+        shell: bash
+        run: |
+          latest_tag="$(git describe --tags --abbrev=0 --match 'v*')"
+          base_version="${latest_tag#v}"
+          IFS='.' read -r major minor patch <<< "$base_version"
+          next_patch=$((patch + 1))
+          pretend_version="${major}.${minor}.${next_patch}.dev${GITHUB_RUN_NUMBER}"
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION=${pretend_version}" >> "$GITHUB_ENV"
+          echo "Using TestPyPI version: ${pretend_version}"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -73,6 +83,16 @@ jobs:
       - name: Install binary into package tree
         run: cmake --install _cmake_build --config Release
 
+      - name: Verify macOS app bundle linkage
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          APP="python/seqeyes/bin/seqeyes.app/Contents/MacOS/seqeyes"
+          test -x "$APP"
+          test -d "python/seqeyes/bin/seqeyes.app/Contents/Frameworks"
+          otool -l "$APP" | grep -A2 LC_RPATH
+          otool -L "$APP"
+
       # ---- Build Python wheel (pure setuptools, binary now present) ----
       - name: Build wheel
         shell: bash
@@ -85,12 +105,6 @@ jobs:
           fi
 
       # ---- Repair wheel: bundle Qt shared libraries ----
-      - name: Repair wheel (Linux 鈥?auditwheel)
-        if: runner.os == 'Linux'
-        run: |
-          pip install auditwheel
-          auditwheel repair wheelhouse/*.whl -w dist/
-
       - name: Copy wheel (macOS — skip delocate)
         if: runner.os == 'macOS'
         shell: bash
