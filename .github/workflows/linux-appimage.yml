@@ -10,66 +10,20 @@ on:
 
 jobs:
   build-appimage:
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/_appimage-build.yml
+
+  upload-release:
+    if: github.event_name == 'release'
+    needs: build-appimage
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install Qt 6.5.3
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: "6.5.3"
-          arch: gcc_64
-          cache: true
-
-      - name: Build and install into AppDir
-        shell: bash
-        run: |
-          set -euo pipefail
-          APPDIR="${{ github.workspace }}/AppDir"
-          cmake -S . -B _cmake_build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DSEQEYES_BUILD_TESTS=OFF \
-            -DCMAKE_INSTALL_PREFIX="${APPDIR}/usr"
-          cmake --build _cmake_build --config Release
-          cmake --install _cmake_build --config Release
-
-          mkdir -p "${APPDIR}/usr/bin"
-          ln -sf ../seqeyes/bin/seqeyes "${APPDIR}/usr/bin/seqeyes"
-
-          mkdir -p "${APPDIR}/usr/share/applications"
-          printf "%s\n" \
-            "[Desktop Entry]" \
-            "Type=Application" \
-            "Name=SeqEyes" \
-            "Exec=seqeyes" \
-            "Icon=seqeyes" \
-            "Categories=Science;Medical;" \
-            "Terminal=false" \
-            > "${APPDIR}/usr/share/applications/seqeyes.desktop"
-
-          mkdir -p "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
-          cp doc/ui.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/seqeyes.png"
-
-      - name: Build AppImage
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -L -o linuxdeployqt.AppImage \
-            https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage
-          chmod +x linuxdeployqt.AppImage
-          ./linuxdeployqt.AppImage AppDir/usr/share/applications/seqeyes.desktop -appimage -verbose=2
-          mv SeqEyes-*.AppImage seqeyes-x86_64.AppImage
-
-      - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
+      - name: Download AppImage artifact
+        uses: actions/download-artifact@v4
         with:
           name: seqeyes-appimage
-          path: seqeyes-x86_64.AppImage
+          path: .
 
       - name: Upload AppImage to Release
-        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: seqeyes-x86_64.AppImage

@@ -126,9 +126,50 @@ jobs:
           name: wheels-${{ matrix.os }}
           path: dist/*.whl
 
+  build-linux-appimage:
+    uses: ./.github/workflows/_appimage-build.yml
+
+  build-linux-wheel-from-appimage:
+    name: Build Linux wheel (AppImage wrapper)
+    needs: build-linux-appimage
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download AppImage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: seqeyes-appimage
+          path: .
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Linux wheel (AppImage wrapper)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p python/seqeyes/bin
+          cp seqeyes-x86_64.AppImage python/seqeyes/bin/seqeyes.AppImage
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build --wheel --outdir dist --config-setting="--build-option=--plat-name=manylinux_2_28_x86_64"
+
+      - name: Upload Linux wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux
+          path: dist/*.whl
+
   publish:
     name: Publish to PyPI
-    needs: build-wheels
+    needs:
+      - build-wheels
+      - build-linux-wheel-from-appimage
     runs-on: ubuntu-latest
     environment:
       name: pypi

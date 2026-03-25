@@ -19,6 +19,7 @@ if sys.platform == "darwin":
 else:
     # Bundled binary installed by the Python wheel alongside this module.
     _BUNDLED_EXE = _pkg_dir / "bin" / _exe_name
+    _BUNDLED_APPIMAGE = _pkg_dir / "bin" / "seqeyes.AppImage"
 
 
 def _find_executable() -> str:
@@ -30,6 +31,8 @@ def _find_executable() -> str:
     """
     if _BUNDLED_EXE.is_file():
         return str(_BUNDLED_EXE)
+    if sys.platform.startswith("linux") and _BUNDLED_APPIMAGE.is_file():
+        return str(_BUNDLED_APPIMAGE)
 
     exe = shutil.which("seqeyes")
     if exe is None:
@@ -124,4 +127,9 @@ def seqeyes(*args) -> None:
     if seq_fn:
         cmd.append(seq_fn)
 
+    if sys.platform.startswith("linux") and cmd and cmd[0].endswith(".AppImage"):
+        env = os.environ.copy()
+        env.setdefault("APPIMAGE_EXTRACT_AND_RUN", "1")
+        subprocess.Popen(cmd, env=env)
+        return
     subprocess.Popen(cmd)
