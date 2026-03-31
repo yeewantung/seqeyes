@@ -455,13 +455,52 @@ void MainWindow::setupIcons()
 
 void MainWindow::InitSlots()
 {
+    // Use explicit menu roles to avoid macOS native-menubar heuristics
+    // re-routing actions in unexpected ways.
+    if (ui->actionOpen)
+    {
+        ui->actionOpen->setMenuRole(QAction::NoRole);
+        ui->actionOpen->setShortcut(QKeySequence::Open);
+        ui->actionOpen->setText(tr("Open..."));
+        ui->actionOpen->setEnabled(true);
+    }
+    if (ui->actionReopen)
+    {
+        ui->actionReopen->setMenuRole(QAction::NoRole);
+        ui->actionReopen->setEnabled(true);
+    }
+    if (ui->actionCloseFile)
+    {
+        ui->actionCloseFile->setMenuRole(QAction::NoRole);
+        ui->actionCloseFile->setShortcut(QKeySequence::Close);
+        ui->actionCloseFile->setText(tr("Close File"));
+        ui->actionCloseFile->setEnabled(true);
+    }
+    if (ui->actionExit)
+    {
+        ui->actionExit->setMenuRole(QAction::QuitRole);
+        ui->actionExit->setShortcut(QKeySequence::Quit);
+    }
+    if (ui->actionAbout)
+    {
+        ui->actionAbout->setMenuRole(QAction::AboutRole);
+    }
+
+    if (ui->actionColorSettings)
+    {
+        ui->actionColorSettings->setMenuRole(QAction::NoRole);
+        ui->actionColorSettings->setText(tr("Color Settings"));
+        ui->actionColorSettings->setEnabled(true);
+    }
+
     // File Menu
-    connect(ui->actionOpen, &QAction::triggered, m_pulseqLoader, &PulseqLoader::OpenPulseqFile);
-    connect(ui->actionReopen, &QAction::triggered, m_pulseqLoader, &PulseqLoader::ReOpenPulseqFile);
-    connect(ui->actionCloseFile, &QAction::triggered, m_pulseqLoader, &PulseqLoader::ClosePulseqFile);
+    connect(ui->actionOpen, &QAction::triggered, this, &MainWindow::onActionOpenTriggered);
+    connect(ui->actionReopen, &QAction::triggered, this, &MainWindow::onActionReopenTriggered);
+    connect(ui->actionCloseFile, &QAction::triggered, this, &MainWindow::onActionCloseFileTriggered);
 
     // View Menu
     connect(ui->actionResetView, &QAction::triggered, m_waveformDrawer, &WaveformDrawer::ResetView);
+    // Keep Color Settings label/placement unchanged; behavior will be handled later.
     // Rename and repurpose to a single entry: "Undersample curves" (checked = downsampling ON)
     ui->actionShowFullDetail->setText("Undersample curves");
     ui->actionShowFullDetail->setToolTip("Downsample curves for performance");
@@ -505,6 +544,36 @@ void MainWindow::InitSlots()
     connect(ui->customPlot, &QCustomPlot::mouseRelease, m_interactionHandler, &InteractionHandler::onMouseRelease);
     connect(ui->customPlot, &QCustomPlot::customContextMenuRequested, m_interactionHandler, &InteractionHandler::showContextMenu);
     ui->customPlot->setContextMenuPolicy(Qt::CustomContextMenu);
+}
+
+void MainWindow::onActionOpenTriggered()
+{
+#ifdef Q_OS_MAC
+    qCritical() << "[MENU TRACE] MainWindow::onActionOpenTriggered";
+#endif
+    if (m_pulseqLoader)
+    {
+        m_pulseqLoader->OpenPulseqFile();
+    }
+}
+
+void MainWindow::onActionReopenTriggered()
+{
+    if (m_pulseqLoader)
+    {
+        m_pulseqLoader->ReOpenPulseqFile();
+    }
+}
+
+void MainWindow::onActionCloseFileTriggered()
+{
+#ifdef Q_OS_MAC
+    qCritical() << "[MENU TRACE] MainWindow::onActionCloseFileTriggered";
+#endif
+    if (m_pulseqLoader)
+    {
+        m_pulseqLoader->ClosePulseqFile();
+    }
 }
 
 void MainWindow::InitStatusBar()
@@ -572,13 +641,32 @@ void MainWindow::setupSettingsMenu()
         }
     }
 
-    // Add a top-level Settings action that opens the dialog directly, placed before Help
-    QAction* settingsAction = new QAction("&Settings", this);
+    // Keep Settings discoverable across platforms while respecting native macOS conventions.
+    QAction* settingsAction = nullptr;
+#ifdef Q_OS_MAC
+    settingsAction = new QAction(tr("Preferences..."), this);
+    settingsAction->setMenuRole(QAction::PreferencesRole);
+    settingsAction->setShortcut(QKeySequence::Preferences);
+#else
+    settingsAction = new QAction(tr("Settings"), this);
+    settingsAction->setMenuRole(QAction::NoRole);
     settingsAction->setShortcut(QKeySequence("Ctrl+,"));
+#endif
     settingsAction->setStatusTip("Open application settings");
     connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettings);
 
-    // Try to insert before the Help menu so Help stays rightmost
+    // On macOS, place under View (it will also be available in the app menu via PreferencesRole).
+    // On other platforms, keep the current top-level placement before Help.
+#ifdef Q_OS_MAC
+    if (ui && ui->menuView)
+    {
+        ui->menuView->addSeparator();
+        ui->menuView->addAction(settingsAction);
+        return;
+    }
+#endif
+
+    // Insert before the Help menu so Help stays rightmost.
     QAction* helpTop = nullptr;
     for (QAction* act : menuBar()->actions())
     {

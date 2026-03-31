@@ -1342,6 +1342,37 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
     }
 }
 
+void WaveformDrawer::clearAllWaveformData()
+{
+    QVector<double> emptyX;
+    QVector<double> emptyY;
+
+    auto clearGraph = [&](QCPGraph* g) {
+        if (!g) return;
+        g->setData(emptyX, emptyY);
+        g->setVisible(false);
+    };
+
+    clearGraph(m_graphADC);
+    clearGraph(m_graphRFMag);
+    clearGraph(m_graphRFPh);
+    clearGraph(m_graphADCPh);
+    clearGraph(m_graphGx);
+    clearGraph(m_graphGy);
+    clearGraph(m_graphGz);
+    clearGraph(m_graphTrigMarkers);
+    clearGraph(m_graphTrigDurations);
+
+    for (QCPGraph* edge : m_blockEdgeGraphs)
+        clearGraph(edge);
+
+    if (m_extensionPlotter)
+        m_extensionPlotter->reset();
+
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+}
+
 void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
 {
     PulseqLoader* loader = m_mainWindow->getPulseqLoader();

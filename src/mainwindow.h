@@ -128,6 +128,9 @@ private:
                              const QVector<double>& kz);
 
 private slots:
+    void onActionOpenTriggered();
+    void onActionReopenTriggered();
+    void onActionCloseFileTriggered();
     void openSettings();
     void openLogWindow();
     void showAbout();

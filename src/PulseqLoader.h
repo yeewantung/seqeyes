@@ -194,6 +194,11 @@ private:
     // Settings management
     void saveLastOpenDirectory();
     void loadLastOpenDirectory();
+    void loadRecentFiles();
+    void saveRecentFiles();
+    void addRecentFile(const QString& filePath);
+    void updateRecentFilesMenu();
+    void clearRecentFiles();
 
 private:
     MainWindow* m_mainWindow;
