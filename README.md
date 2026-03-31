@@ -38,7 +38,30 @@ seqeyes.seqeyes(seq)
 ## Build Instructions
 Qt6 libraries and cmake are required to build the project.
 ### Linux
-Use the build.sh script to build the project, or use the AppImage from GitHub Releases.
+Use the build.sh script to build the project:
+```bash
+./build.sh . ./out/bin Release ~/Qt
+```
+or use the AppImage from GitHub Releases.
+
+### macOS
+Recommended dependencies installation via Homebrew:
+```bash
+brew install qt
+brew install cmake
+```
+
+Use the same build.sh script (replace `/path/to/Qt` to the installation path of Qt):
+```bash
+./build.sh . ./out/bin Release /path/to/Qt
+```
+The script auto-detects the Qt desktop folder (`macos` or `clang_64`) and uses `macdeployqt` through CMake install rules.
+
+If Qt is installed with Homebrew:
+```bash
+./build.sh . ./out/bin Release "$(brew --prefix qt)"
+```
+
 ### Windows
 ```
 cmake -S . -B out/build/x64-Release
