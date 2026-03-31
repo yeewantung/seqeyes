@@ -137,7 +137,7 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle("SeqEyes");
 
     // Hide the top toolbar by default to save vertical space (especially for small tiled windows like --layout 211).
-    // File/View menus already contain the core actions, and Measure ¦¤t is added to View below.
+    // File/View menus already contain the core actions, and Measure ï¿½ï¿½t is added to View below.
     if (ui->toolBar)
         ui->toolBar->setVisible(false);
 
@@ -468,7 +468,7 @@ void MainWindow::InitSlots()
     ui->actionShowFullDetail->setChecked(true); // default: undersampling enabled
     connect(ui->actionShowFullDetail, &QAction::toggled, this, &MainWindow::onShowFullDetailToggled);
 
-    // View ¡ú Log
+    // View ï¿½ï¿½ Log
     if (ui->menuView)
     {
         QAction* logAction = new QAction(tr("Log"), this);
@@ -614,7 +614,7 @@ void MainWindow::onTimeUnitChanged()
     m_pulseqLoader->ReOpenPulseqFile();
 
     // Restore the viewport so the user keeps seeing the same physical time span
-    // (e.g. 0-200 ms ¡ú 0-200000 us).
+    // (e.g. 0-200 ms ï¿½ï¿½ 0-200000 us).
     if (hasRange && oldFactor != 0.0)
     {
         double newFactor = m_pulseqLoader->getTFactor();
@@ -704,11 +704,11 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     QPen trajPen(Qt::blue);
     trajPen.setWidthF(1.5);
     m_pTrajectoryCurve->setPen(trajPen);
-    // ADC sampling points ¡ª QCPCurve kept hidden as data container;
+    // ADC sampling points ï¿½ï¿½ QCPCurve kept hidden as data container;
     // actual rendering uses QImage rasterizer (see renderTrajectoryScatter).
     m_pTrajectorySamplesGraph = new QCPCurve(m_pTrajectoryPlot->xAxis, m_pTrajectoryPlot->yAxis);
     m_pTrajectorySamplesGraph->setVisible(false);
-    // Rasterized scatter pixmap ¡ª replaces QCPCurve scatter for performance
+    // Rasterized scatter pixmap ï¿½ï¿½ replaces QCPCurve scatter for performance
     m_pTrajectoryScatterItem = new QCPItemPixmap(m_pTrajectoryPlot);
     m_pTrajectoryScatterItem->setVisible(false);
     m_pTrajectoryScatterItem->setScaled(false);
@@ -848,7 +848,7 @@ void MainWindow::setTrajectoryVisible(bool show)
 // Rasterized scatter renderer: paints ADC dots directly into a QImage via scanLine
 // pixel writes and displays via QCPItemPixmap. This is ~50x faster than QCPCurve
 // scatter (which calls QPainter::drawEllipse per point). Every data point is rendered
-// ¡ª no downsampling, no visual loss. Re-called on every axis range change (drag/zoom).
+// ï¿½ï¿½ no downsampling, no visual loss. Re-called on every axis range change (drag/zoom).
 void MainWindow::renderTrajectoryScatter()
 {
     if (!m_pTrajectoryPlot || !m_pTrajectoryScatterItem || !m_showKtrajAdc)
@@ -1128,7 +1128,7 @@ void MainWindow::refreshTrajectoryPlotData()
     filterScatter(tAdc, kxAdc, kyAdc, limitToView && !tAdc.isEmpty(), kxAdcSubset, kyAdcSubset);
 
     // Store scatter data for the QImage rasterizer (renderTrajectoryScatter).
-    // No downsampling needed ¡ª scanLine pixel writes are fast enough for any point count.
+    // No downsampling needed ï¿½ï¿½ scanLine pixel writes are fast enough for any point count.
     auto scaleVec = [&](QVector<double>& v) {
         if (trajScale != 1.0) {
             double s = std::abs(trajScale);
@@ -1338,7 +1338,7 @@ void MainWindow::enforceTrajectoryAspect(bool queueReplot)
     double newSpanY = spanY;
 
     const double ratio = pixelsPerUnitX / pixelsPerUnitY;
-    constexpr double kAspectTolerance = 0.03; // allow ¡À3% mismatch before correcting
+    constexpr double kAspectTolerance = 0.03; // allow ï¿½ï¿½3% mismatch before correcting
     if (std::abs(ratio - 1.0) <= kAspectTolerance)
     {
         if (queueReplot)
@@ -1963,11 +1963,11 @@ void MainWindow::showUsage()
         "<h3>SeqEyes Usage Guide</h3>"
 
         "<p><b>Navigation & Viewing:</b><br>"
-        "? <b>Zoom / Pan:</b> Controlled by Settings ¡ú Interactions.<br>"
+        "? <b>Zoom / Pan:</b> Controlled by Settings ï¿½ï¿½ Interactions.<br>"
         "&nbsp;&nbsp;Default: Zoom = Mouse wheel; Pan = Drag.<br>"
-        "? <b>Reset View:</b> View ¡ú Reset View<br>"
+        "? <b>Reset View:</b> View ï¿½ï¿½ Reset View<br>"
         "? <b>Update Displayed Region:</b><br>"
-        "&nbsp;&nbsp;Adjust the <b>Time</b> window, the <b>TR</b> range, or the <b>Block index</b> (Start¨CEnd/Inc) to change the visible portion of the sequence.</p>"
+        "&nbsp;&nbsp;Adjust the <b>Time</b> window, the <b>TR</b> range, or the <b>Block index</b> (Startï¿½CEnd/Inc) to change the visible portion of the sequence.</p>"
     );
 }
 
