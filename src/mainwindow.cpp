@@ -35,7 +35,6 @@
 #include <QImage>
 #include <QStyle>
 #include <QVector>
-#include <QSizePolicy>
 #include <cmath>
 #include <limits>
 #include <algorithm>
@@ -192,9 +191,6 @@ MainWindow::MainWindow(QWidget* parent)
         chosen.setStyleStrategy(QFont::PreferAntialias);
         m_pCoordLabel->setFont(chosen);
     }
-    // Prevent status text from forcing window expansion when content grows.
-    m_pCoordLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_pCoordLabel->setMinimumWidth(0);
     ui->statusbar->addWidget(m_pCoordLabel);
     m_pPnsStatusLabel = new QLabel(this);
     m_pPnsStatusLabel->setFont(m_pCoordLabel->font());
@@ -645,12 +641,11 @@ void MainWindow::setupSettingsMenu()
         }
     }
 
-    // Keep the settings label stable across platforms and avoid native
-    // macOS role remapping that can rename the entry during runtime.
+    // Keep Settings discoverable across platforms while respecting native macOS conventions.
     QAction* settingsAction = nullptr;
 #ifdef Q_OS_MAC
-    settingsAction = new QAction(tr("Settings..."), this);
-    settingsAction->setMenuRole(QAction::NoRole);
+    settingsAction = new QAction(tr("Preferences..."), this);
+    settingsAction->setMenuRole(QAction::PreferencesRole);
     settingsAction->setShortcut(QKeySequence::Preferences);
 #else
     settingsAction = new QAction(tr("Settings"), this);
@@ -660,7 +655,7 @@ void MainWindow::setupSettingsMenu()
     settingsAction->setStatusTip("Open application settings");
     connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettings);
 
-    // On macOS, keep Settings under View to avoid app-menu role remapping.
+    // On macOS, place under View (it will also be available in the app menu via PreferencesRole).
     // On other platforms, keep the current top-level placement before Help.
 #ifdef Q_OS_MAC
     if (ui && ui->menuView)
@@ -1849,8 +1844,16 @@ void MainWindow::exportTrajectory()
         return;
     }
 
+    QFileDialog::Options options;
+    QWidget* parentForDialog = this;
+#ifdef Q_OS_MAC
+    // Match the Open-file workaround: native macOS panel can fail to appear
+    // in this app context, so use Qt dialog implementation with no parent.
+    options |= QFileDialog::DontUseNativeDialog;
+    parentForDialog = nullptr;
+#endif
     QString exportDir = QFileDialog::getExistingDirectory(
-        this, tr("Select export folder"), QDir::currentPath());
+        parentForDialog, tr("Select export folder"), QDir::currentPath(), options);
     if (exportDir.isEmpty())
         return;
 
