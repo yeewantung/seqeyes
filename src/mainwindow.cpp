@@ -35,6 +35,7 @@
 #include <QImage>
 #include <QStyle>
 #include <QVector>
+#include <QSizePolicy>
 #include <cmath>
 #include <limits>
 #include <algorithm>
@@ -191,6 +192,9 @@ MainWindow::MainWindow(QWidget* parent)
         chosen.setStyleStrategy(QFont::PreferAntialias);
         m_pCoordLabel->setFont(chosen);
     }
+    // Prevent status text from forcing window expansion when content grows.
+    m_pCoordLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_pCoordLabel->setMinimumWidth(0);
     ui->statusbar->addWidget(m_pCoordLabel);
     m_pPnsStatusLabel = new QLabel(this);
     m_pPnsStatusLabel->setFont(m_pCoordLabel->font());

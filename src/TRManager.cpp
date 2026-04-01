@@ -911,14 +911,23 @@ void TRManager::updateTrStatusDisplay()
     if (m_mainWindow->getCoordLabel())
     {
         QString currentText = m_mainWindow->getCoordLabel()->text();
-        if (!currentText.isEmpty() && !currentText.contains("TR Mode"))
+
+        // Keep any coordinate prefix, but replace an existing render status segment
+        // so the label does not grow on every file load.
+        const int renderSepPos = currentText.indexOf(" | Render:");
+        if (renderSepPos >= 0)
         {
+            currentText = currentText.left(renderSepPos);
+        }
+        else if (currentText.startsWith("Render:"))
+        {
+            currentText.clear();
+        }
+
+        if (!currentText.trimmed().isEmpty())
             m_mainWindow->getCoordLabel()->setText(currentText + " | " + statusText);
-        }
         else
-        {
             m_mainWindow->getCoordLabel()->setText(statusText);
-        }
     }
 }
 

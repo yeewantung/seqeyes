@@ -655,6 +655,16 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     {
         // Show "SeqEyes - file.seq" only after a successful load.
         m_mainWindow->setLoadedFileTitle(sPulseqFilePath);
+
+        if (auto* coord = m_mainWindow->getCoordLabel())
+        {
+            qDebug().noquote()
+                << "[UI_GEOM] after-load"
+                << "windowSize=" << m_mainWindow->size()
+                << "coordTextLen=" << coord->text().size()
+                << "coordSizeHintW=" << coord->sizeHint().width()
+                << "coordMinW=" << coord->minimumWidth();
+        }
     }
     addRecentFile(sPulseqFilePath);
     m_mainWindow->setEnabled(true);
