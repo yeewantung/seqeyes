@@ -641,11 +641,12 @@ void MainWindow::setupSettingsMenu()
         }
     }
 
-    // Keep Settings discoverable across platforms while respecting native macOS conventions.
+    // Keep the settings label stable across platforms and avoid native
+    // macOS role remapping that can rename the entry during runtime.
     QAction* settingsAction = nullptr;
 #ifdef Q_OS_MAC
-    settingsAction = new QAction(tr("Preferences..."), this);
-    settingsAction->setMenuRole(QAction::PreferencesRole);
+    settingsAction = new QAction(tr("Settings..."), this);
+    settingsAction->setMenuRole(QAction::NoRole);
     settingsAction->setShortcut(QKeySequence::Preferences);
 #else
     settingsAction = new QAction(tr("Settings"), this);
@@ -655,7 +656,7 @@ void MainWindow::setupSettingsMenu()
     settingsAction->setStatusTip("Open application settings");
     connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettings);
 
-    // On macOS, place under View (it will also be available in the app menu via PreferencesRole).
+    // On macOS, keep Settings under View to avoid app-menu role remapping.
     // On other platforms, keep the current top-level placement before Help.
 #ifdef Q_OS_MAC
     if (ui && ui->menuView)
