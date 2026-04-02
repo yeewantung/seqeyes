@@ -191,6 +191,14 @@ MainWindow::MainWindow(QWidget* parent)
         chosen.setStyleStrategy(QFont::PreferAntialias);
         m_pCoordLabel->setFont(chosen);
     }
+    // Keep status text from forcing main-window width growth when opening files.
+    // macOS native menubar/status layout is stricter, so prefer Ignored there.
+#ifdef Q_OS_MAC
+    m_pCoordLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+#else
+    m_pCoordLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+#endif
+    m_pCoordLabel->setMinimumWidth(0);
     ui->statusbar->addWidget(m_pCoordLabel);
     m_pPnsStatusLabel = new QLabel(this);
     m_pPnsStatusLabel->setFont(m_pCoordLabel->font());

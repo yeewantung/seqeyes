@@ -22,35 +22,12 @@
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QTextStream>
-#include <QStandardPaths>
-#include <QFile>
-#include <QDateTime>
 #ifdef _WIN32
 #  include <Windows.h>
 #endif
 
 // Use a semantic minimum level rather than QtMsgType ordering (QtMsgType values are non-monotonic)
 static Settings::LogLevel g_minLogLevel = Settings::LogLevel::Critical;
-
-static QString persistentLogPath()
-{
-    QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-    if (baseDir.isEmpty())
-        baseDir = QDir::homePath() + QStringLiteral("/.seqeyes");
-    QDir().mkpath(baseDir);
-    return QDir(baseDir).filePath(QStringLiteral("seqeyes.log"));
-}
-
-static void appendPersistentLogLine(const QString& line)
-{
-    const QString path = persistentLogPath();
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
-        return;
-
-    QTextStream out(&f);
-    out << line << '\n';
-}
 
 static void qtLogFilter(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
 {
@@ -73,27 +50,13 @@ static void qtLogFilter(QtMsgType type, const QMessageLogContext& ctx, const QSt
     if (!shouldEmit(type))
         return;
 
-    // Route messages through LogManager only while Qt application is alive.
-    // This avoids touching QObject singletons during shutdown/teardown.
+    // Route messages through LogManager so they appear in the GUI log window.
+    // Avoid touching QObject singletons during shutdown/teardown.
     QCoreApplication* app = QCoreApplication::instance();
     if (app && !QCoreApplication::closingDown())
     {
         LogManager::getInstance().appendFromQt(type, ctx, msg);
     }
-
-    // Persist logs to disk for debugging across runs.
-    const QString ts = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
-    QString level;
-    switch (type)
-    {
-    case QtDebugMsg:    level = QStringLiteral("DEBUG"); break;
-    case QtInfoMsg:     level = QStringLiteral("INFO");  break;
-    case QtWarningMsg:  level = QStringLiteral("WARN");  break;
-    case QtCriticalMsg: level = QStringLiteral("ERROR"); break;
-    case QtFatalMsg:    level = QStringLiteral("FATAL"); break;
-    default:            level = QStringLiteral("LOG");   break;
-    }
-    appendPersistentLogLine(QStringLiteral("%1 [%2] %3").arg(ts, level, msg));
 
     // Keep writing to stderr for headless / test binaries.
     fprintf(stderr, "%s\n", msg.toLocal8Bit().constData());
@@ -299,7 +262,6 @@ int main(int argc, char *argv[])
     app.setApplicationVersion(SEQEYES_APP_VERSION_PLAIN);
     // Force LTR across the whole app to avoid inverted scrollbars/RTL behavior on some platforms/styles.
     app.setLayoutDirection(Qt::LeftToRight);
-    qDebug().noquote() << "[LOG] persistent file:" << persistentLogPath();
     
     // Set up command line parser
     QCommandLineParser parser;
