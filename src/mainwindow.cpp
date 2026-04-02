@@ -644,8 +644,10 @@ void MainWindow::setupSettingsMenu()
     // Keep Settings discoverable across platforms while respecting native macOS conventions.
     QAction* settingsAction = nullptr;
 #ifdef Q_OS_MAC
-    settingsAction = new QAction(tr("Preferences..."), this);
-    settingsAction->setMenuRole(QAction::PreferencesRole);
+    settingsAction = new QAction(tr("Preferences"), this);
+    // Keep explicit label stable on macOS; PreferencesRole may be rewritten
+    // by native menubar heuristics (e.g. shown as "Settings").
+    settingsAction->setMenuRole(QAction::NoRole);
     settingsAction->setShortcut(QKeySequence::Preferences);
 #else
     settingsAction = new QAction(tr("Settings"), this);

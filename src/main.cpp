@@ -73,8 +73,13 @@ static void qtLogFilter(QtMsgType type, const QMessageLogContext& ctx, const QSt
     if (!shouldEmit(type))
         return;
 
-    // Route all messages through LogManager so they appear in the GUI log window.
-    LogManager::getInstance().appendFromQt(type, ctx, msg);
+    // Route messages through LogManager only while Qt application is alive.
+    // This avoids touching QObject singletons during shutdown/teardown.
+    QCoreApplication* app = QCoreApplication::instance();
+    if (app && !QCoreApplication::closingDown())
+    {
+        LogManager::getInstance().appendFromQt(type, ctx, msg);
+    }
 
     // Persist logs to disk for debugging across runs.
     const QString ts = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
@@ -309,9 +314,6 @@ int main(int argc, char *argv[])
     (void)Settings::getInstance(); // construct/load once
     updateQtLogThresholdFromSettings();
 
-    // Route verbose prints from ExternalSequence into Qt logging (and therefore the Log window)
-    ExternalSequence::SetPrintFunction(&externalSeqLogPrinter);
-    
     // Get positional arguments
     const QStringList args = parser.positionalArguments();
     QString fileToOpen;
@@ -327,6 +329,13 @@ int main(int argc, char *argv[])
 
     // Headless/test paths
     bool headless = isHeadless(parser);
+
+    // Route verbose ExternalSequence prints into Qt logging only for GUI runs.
+    // In headless CI runs this avoids stressing the Qt log handler path.
+    if (!headless)
+    {
+        ExternalSequence::SetPrintFunction(&externalSeqLogPrinter);
+    }
 
     // Note: No test-specific commands beyond minimal generic flags.
 
