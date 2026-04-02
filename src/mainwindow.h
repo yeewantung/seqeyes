@@ -87,6 +87,8 @@ public:
     TRManager* getTRManager() const { return m_trManager; }
     WaveformDrawer* getWaveformDrawer() const { return m_waveformDrawer; }
     bool isTrajectoryVisible() const { return m_showTrajectory; }
+    bool isInteractionFastMode() const { return m_interactionFastMode; }
+    void setInteractionFastMode(bool enabled);
 
     // Getters for UI elements needed by handlers
     Ui::MainWindow* getUI() const { return ui; }
@@ -95,6 +97,7 @@ public:
     QLabel* getCoordLabel() const { return m_pCoordLabel; }
     QLabel* getVersionLabel() const { return m_pVersionLabel; }
     QProgressBar* getProgressBar() const { return m_pProgressBar; }
+    void updatePnsStatusIndicator();
 
 protected:
     // Overridden event handlers to delegate to InteractionHandler
@@ -146,6 +149,7 @@ public:
     void openFileFromCommandLine(const QString& filePath);
     void applyCommandLineOptions(const QCommandLineParser& parser);
     void captureSnapshotsAndExit(const QString& outDir);
+    bool exportTrajectoryToDirectory(const QString& exportDir, QString* error = nullptr);
     void setTrajectoryVisible(bool show);
     bool sampleTrajectoryAtInternalTime(double internalTime,
                                         double& kxOut,
@@ -174,6 +178,7 @@ private:
     QLabel* m_pVersionLabel;
     QProgressBar* m_pProgressBar;
     QLabel* m_pCoordLabel; // Used by InteractionHandler and TRManager
+    QLabel* m_pPnsStatusLabel {nullptr};
     
     // Settings dialog
     SettingsDialog* m_settingsDialog;
@@ -221,9 +226,14 @@ private:
     double m_currentTrajectoryTimeInternal {0.0};
     bool m_hasTrajectoryCursorTime {false};
     bool m_trajectoryRangeInitialized {false};
+    bool m_interactionFastMode {false};
 
     QString m_loadedSeqFilePath;
     QString m_customWindowTitle; // Custom window title set via --name option
 };
 
 #endif // MAINWINDOW_H
+
+
+
+

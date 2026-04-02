@@ -31,6 +31,7 @@
 #include <QDir>
 #include <QResizeEvent>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QStyle>
 #include <QVector>
@@ -38,6 +39,7 @@
 #include <limits>
 #include <algorithm>
 #include <QPainter>
+#include <cmath>
 
 // Lightweight overlay widget for drawing trajectory crosshair without forcing full plot replots
 class TrajectoryCrosshairOverlay : public QWidget
@@ -121,6 +123,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_pVersionLabel(nullptr),
       m_pProgressBar(nullptr),
       m_pCoordLabel(nullptr),
+      m_pPnsStatusLabel(nullptr),
       m_settingsDialog(nullptr)
 {
     ui->setupUi(this);
@@ -134,7 +137,7 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle("SeqEyes");
 
     // Hide the top toolbar by default to save vertical space (especially for small tiled windows like --layout 211).
-    // File/View menus already contain the core actions, and Measure Î”t is added to View below.
+    // File/View menus already contain the core actions, and Measure ¦¤t is added to View below.
     if (ui->toolBar)
         ui->toolBar->setVisible(false);
 
@@ -189,6 +192,10 @@ MainWindow::MainWindow(QWidget* parent)
         m_pCoordLabel->setFont(chosen);
     }
     ui->statusbar->addWidget(m_pCoordLabel);
+    m_pPnsStatusLabel = new QLabel(this);
+    m_pPnsStatusLabel->setFont(m_pCoordLabel->font());
+    m_pPnsStatusLabel->setVisible(false);
+    ui->statusbar->addWidget(m_pPnsStatusLabel);
 
     // This needs to be called after the plot rects are created in InitSequenceFigure
     m_waveformDrawer->InitTracers();
@@ -234,6 +241,16 @@ MainWindow::MainWindow(QWidget* parent)
             this, &MainWindow::onSettingsChanged);
     connect(&Settings::getInstance(), &Settings::timeUnitChanged,
             this, &MainWindow::onTimeUnitChanged);
+    connect(m_pulseqLoader, &PulseqLoader::pnsDataUpdated, this, [this]() {
+        if (m_waveformDrawer)
+        {
+            m_waveformDrawer->computeAndLockYAxisRanges();
+            m_waveformDrawer->DrawGWaveform();
+            if (ui && ui->customPlot)
+                ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        }
+        updatePnsStatusIndicator();
+    });
 
     // 7. Install event filters
     m_trManager->installEventFilters();
@@ -303,8 +320,104 @@ MainWindow::~MainWindow()
     SAFE_DELETE(m_pVersionLabel);
     SAFE_DELETE(m_pProgressBar);
     SAFE_DELETE(m_pCoordLabel);
+    SAFE_DELETE(m_pPnsStatusLabel);
     SAFE_DELETE(m_settingsDialog);
     delete ui;
+}
+
+void MainWindow::updatePnsStatusIndicator()
+{
+    if (!m_pPnsStatusLabel)
+        return;
+
+    const bool showByCheckbox = (m_trManager && m_trManager->isShowPnsChecked());
+    if (!showByCheckbox)
+    {
+        m_pPnsStatusLabel->setVisible(false);
+        m_pPnsStatusLabel->setText("");
+        return;
+    }
+
+    QString text;
+    const QString ascPath = Settings::getInstance().getPnsAscPath().trimmed();
+    if (ascPath.isEmpty())
+    {
+        text = " | PNS: Not configured";
+    }
+    else if (!m_pulseqLoader || !m_pulseqLoader->hasPnsData())
+    {
+        const QString status = m_pulseqLoader ? m_pulseqLoader->getPnsStatusMessage() : QString();
+        if (status.contains("ASC", Qt::CaseInsensitive) ||
+            status.contains("invalid", Qt::CaseInsensitive) ||
+            status.contains("not found", Qt::CaseInsensitive))
+        {
+            text = " | PNS: Invalid asc file";
+        }
+        else
+        {
+            text = " | PNS: Ready";
+        }
+    }
+    else
+    {
+        auto maxOf = [](const QVector<double>& v) {
+            double m = 0.0;
+            for (double x : v)
+            {
+                if (std::isfinite(x))
+                    m = std::max(m, x);
+            }
+            return m;
+        };
+        auto sampleAt = [](const QVector<double>& t, const QVector<double>& v, double ts) {
+            if (t.isEmpty() || v.isEmpty()) return 0.0;
+            const int n = std::min(t.size(), v.size());
+            if (n <= 0) return 0.0;
+            if (ts <= t[0]) return v[0];
+            if (ts >= t[n - 1]) return v[n - 1];
+            auto it = std::lower_bound(t.constBegin(), t.constBegin() + n, ts);
+            int i1 = static_cast<int>(it - t.constBegin());
+            if (i1 <= 0) return v[0];
+            if (i1 >= n) return v[n - 1];
+            const int i0 = i1 - 1;
+            const double t0 = t[i0], t1 = t[i1];
+            if (!(std::isfinite(t0) && std::isfinite(t1)) || t1 <= t0) return v[i0];
+            const double a = std::clamp((ts - t0) / (t1 - t0), 0.0, 1.0);
+            return v[i0] + (v[i1] - v[i0]) * a;
+        };
+
+        int xp = 0, yp = 0, zp = 0, np = 0;
+        const QVector<double>& pnsT = m_pulseqLoader->getPnsTimeSec();
+        const QVector<double>& pnsX = m_pulseqLoader->getPnsX();
+        const QVector<double>& pnsY = m_pulseqLoader->getPnsY();
+        const QVector<double>& pnsZ = m_pulseqLoader->getPnsZ();
+        const QVector<double>& pnsN = m_pulseqLoader->getPnsNorm();
+
+        if (m_hasTrajectoryCursorTime)
+        {
+            const double tFactor = m_pulseqLoader->getTFactor();
+            if (tFactor > 0.0)
+            {
+                const double cursorTimeSec = (m_currentTrajectoryTimeInternal / tFactor) * 1e-6;
+                xp = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsX, cursorTimeSec)));
+                yp = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsY, cursorTimeSec)));
+                zp = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsZ, cursorTimeSec)));
+                np = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsN, cursorTimeSec)));
+            }
+        }
+        else
+        {
+            xp = static_cast<int>(std::lround(100.0 * maxOf(pnsX)));
+            yp = static_cast<int>(std::lround(100.0 * maxOf(pnsY)));
+            zp = static_cast<int>(std::lround(100.0 * maxOf(pnsZ)));
+            np = static_cast<int>(std::lround(100.0 * maxOf(pnsN)));
+        }
+
+        text = QString(" | PNS: xyzn=%1,%2,%3,%4").arg(xp).arg(yp).arg(zp).arg(np) + "%";
+    }
+
+    m_pPnsStatusLabel->setText(text);
+    m_pPnsStatusLabel->setVisible(true);
 }
 
 void MainWindow::Init()
@@ -355,7 +468,7 @@ void MainWindow::InitSlots()
     ui->actionShowFullDetail->setChecked(true); // default: undersampling enabled
     connect(ui->actionShowFullDetail, &QAction::toggled, this, &MainWindow::onShowFullDetailToggled);
 
-    // View â†’ Log
+    // View ¡ú Log
     if (ui->menuView)
     {
         QAction* logAction = new QAction(tr("Log"), this);
@@ -501,7 +614,7 @@ void MainWindow::onTimeUnitChanged()
     m_pulseqLoader->ReOpenPulseqFile();
 
     // Restore the viewport so the user keeps seeing the same physical time span
-    // (e.g. 0-200 ms â†’ 0-200000 us).
+    // (e.g. 0-200 ms ¡ú 0-200000 us).
     if (hasRange && oldFactor != 0.0)
     {
         double newFactor = m_pulseqLoader->getTFactor();
@@ -591,11 +704,11 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     QPen trajPen(Qt::blue);
     trajPen.setWidthF(1.5);
     m_pTrajectoryCurve->setPen(trajPen);
-    // ADC sampling points â€” QCPCurve kept hidden as data container;
+    // ADC sampling points ¡ª QCPCurve kept hidden as data container;
     // actual rendering uses QImage rasterizer (see renderTrajectoryScatter).
     m_pTrajectorySamplesGraph = new QCPCurve(m_pTrajectoryPlot->xAxis, m_pTrajectoryPlot->yAxis);
     m_pTrajectorySamplesGraph->setVisible(false);
-    // Rasterized scatter pixmap â€” replaces QCPCurve scatter for performance
+    // Rasterized scatter pixmap ¡ª replaces QCPCurve scatter for performance
     m_pTrajectoryScatterItem = new QCPItemPixmap(m_pTrajectoryPlot);
     m_pTrajectoryScatterItem->setVisible(false);
     m_pTrajectoryScatterItem->setScaled(false);
@@ -653,6 +766,7 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     if (m_pTrajectoryPlot->axisRect())
         m_pTrajectoryCrosshairOverlay->setGeometry(m_pTrajectoryPlot->axisRect()->rect());
     trajectoryLayout->addWidget(m_pTrajectoryPlot, 1);
+
     connect(m_pExportTrajectoryButton, &QPushButton::clicked, this, &MainWindow::exportTrajectory);
     connect(m_pResetTrajectoryButton, &QPushButton::clicked, this, &MainWindow::onResetTrajectoryRange);
 
@@ -667,6 +781,14 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     m_plotSplitter->setSizes(sizes);
 }
 
+void MainWindow::setInteractionFastMode(bool enabled)
+{
+    if (m_interactionFastMode == enabled)
+        return;
+    m_interactionFastMode = enabled;
+    if (m_waveformDrawer)
+        m_waveformDrawer->setPnsInteractionFastVisibility(enabled);
+}
 void MainWindow::setTrajectoryVisible(bool show)
 {
     if (!m_pTrajectoryPlot || !m_plotSplitter || !m_pTrajectoryPanel)
@@ -726,7 +848,7 @@ void MainWindow::setTrajectoryVisible(bool show)
 // Rasterized scatter renderer: paints ADC dots directly into a QImage via scanLine
 // pixel writes and displays via QCPItemPixmap. This is ~50x faster than QCPCurve
 // scatter (which calls QPainter::drawEllipse per point). Every data point is rendered
-// â€” no downsampling, no visual loss. Re-called on every axis range change (drag/zoom).
+// ¡ª no downsampling, no visual loss. Re-called on every axis range change (drag/zoom).
 void MainWindow::renderTrajectoryScatter()
 {
     if (!m_pTrajectoryPlot || !m_pTrajectoryScatterItem || !m_showKtrajAdc)
@@ -1006,7 +1128,7 @@ void MainWindow::refreshTrajectoryPlotData()
     filterScatter(tAdc, kxAdc, kyAdc, limitToView && !tAdc.isEmpty(), kxAdcSubset, kyAdcSubset);
 
     // Store scatter data for the QImage rasterizer (renderTrajectoryScatter).
-    // No downsampling needed â€” scanLine pixel writes are fast enough for any point count.
+    // No downsampling needed ¡ª scanLine pixel writes are fast enough for any point count.
     auto scaleVec = [&](QVector<double>& v) {
         if (trajScale != 1.0) {
             double s = std::abs(trajScale);
@@ -1216,7 +1338,7 @@ void MainWindow::enforceTrajectoryAspect(bool queueReplot)
     double newSpanY = spanY;
 
     const double ratio = pixelsPerUnitX / pixelsPerUnitY;
-    constexpr double kAspectTolerance = 0.03; // allow Â±3% mismatch before correcting
+    constexpr double kAspectTolerance = 0.03; // allow ¡À3% mismatch before correcting
     if (std::abs(ratio - 1.0) <= kAspectTolerance)
     {
         if (queueReplot)
@@ -1710,6 +1832,10 @@ void MainWindow::onSettingsChanged()
     }
 
     updateTrajectoryAxisLabels();
+    if (m_pulseqLoader)
+    {
+        m_pulseqLoader->recomputePnsFromSettings();
+    }
     refreshTrajectoryPlotData();
     refreshTrajectoryCursor();
 }
@@ -1744,7 +1870,22 @@ void MainWindow::updateTrajectoryCursorTime(double internalTime)
 {
     m_currentTrajectoryTimeInternal = internalTime;
     m_hasTrajectoryCursorTime = true;
-    refreshTrajectoryCursor();
+    // Skip trajectory cursor refresh when trajectory panel/cursor is hidden.
+    if (m_showTrajectory && m_showTrajectoryCursor)
+        refreshTrajectoryCursor();
+    // Throttle status text refresh during mouse move to keep red guide line responsive.
+    static QElapsedTimer s_lastPnsUiUpdate;
+    static bool s_started = false;
+    if (!s_started)
+    {
+        s_lastPnsUiUpdate.start();
+        s_started = true;
+    }
+    if (s_lastPnsUiUpdate.elapsed() >= 50)
+    {
+        updatePnsStatusIndicator();
+        s_lastPnsUiUpdate.restart();
+    }
 }
 
 void MainWindow::openLogWindow()
@@ -1822,11 +1963,11 @@ void MainWindow::showUsage()
         "<h3>SeqEyes Usage Guide</h3>"
 
         "<p><b>Navigation & Viewing:</b><br>"
-        "â€¢ <b>Zoom / Pan:</b> Controlled by Settings â†’ Interactions.<br>"
+        "? <b>Zoom / Pan:</b> Controlled by Settings ¡ú Interactions.<br>"
         "&nbsp;&nbsp;Default: Zoom = Mouse wheel; Pan = Drag.<br>"
-        "â€¢ <b>Reset View:</b> View â†’ Reset View<br>"
-        "â€¢ <b>Update Displayed Region:</b><br>"
-        "&nbsp;&nbsp;Adjust the <b>Time</b> window, the <b>TR</b> range, or the <b>Block index</b> (Startâ€“End/Inc) to change the visible portion of the sequence.</p>"
+        "? <b>Reset View:</b> View ¡ú Reset View<br>"
+        "? <b>Update Displayed Region:</b><br>"
+        "&nbsp;&nbsp;Adjust the <b>Time</b> window, the <b>TR</b> range, or the <b>Block index</b> (Start¨CEnd/Inc) to change the visible portion of the sequence.</p>"
     );
 }
 
@@ -2088,3 +2229,8 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         });
     });
 }
+
+
+
+
+

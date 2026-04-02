@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QMap>
+#include <QStringList>
 
 class Settings : public QObject
 {
@@ -155,6 +156,25 @@ public:
     void setShowExtensionTooltip(bool show);
     bool getShowExtensionTooltip() const;
 
+    // PNS ASC file selection/history
+    QString getPnsAscPath() const;
+    QStringList getPnsAscHistory() const;
+    // PNS ASC Nicknames: path -> display nickname (optional, can be empty)
+    QString getPnsAscNickname(const QString& path) const;
+    QMap<QString, QString> getPnsAscNicknames() const;
+    void setPnsAscPath(const QString& path);
+    void setPnsAscHistory(const QStringList& history);
+    void setPnsAscNickname(const QString& path, const QString& nickname);
+    int removeInvalidPnsAscHistoryPaths();
+    void setPnsChannelVisibleX(bool visible);
+    void setPnsChannelVisibleY(bool visible);
+    void setPnsChannelVisibleZ(bool visible);
+    void setPnsChannelVisibleNorm(bool visible);
+    bool getPnsChannelVisibleX() const;
+    bool getPnsChannelVisibleY() const;
+    bool getPnsChannelVisibleZ() const;
+    bool getPnsChannelVisibleNorm() const;
+
 signals:
     void settingsChanged();
     void timeUnitChanged();
@@ -186,6 +206,13 @@ private:
     bool m_showTeApproximateDialog { true }; // Show TE approximate warning for legacy sequences
     bool m_showTrajectoryApproximateDialog { true }; // Show trajectory warning for legacy sequences
     bool m_showExtensionTooltip { false }; // Show extension tooltip on hover
+    QString m_pnsAscPath;
+    QStringList m_pnsAscHistory;
+    QMap<QString, QString> m_pnsAscNicknames;
+    bool m_pnsShowX {false};
+    bool m_pnsShowY {false};
+    bool m_pnsShowZ {true};
+    bool m_pnsShowNorm {true};
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
     
     // Conversion helper functions

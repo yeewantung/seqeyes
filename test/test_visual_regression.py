@@ -72,8 +72,9 @@ def compare_images(
         print(f"  -> [SKIP] Baseline missing: {os.path.basename(baseline_path)}")
         return "SKIP"
 
-    img1 = Image.open(baseline_path).convert('RGB')
-    img2 = Image.open(snapshot_path).convert('RGB')
+    with Image.open(baseline_path) as _img1, Image.open(snapshot_path) as _img2:
+        img1 = _img1.convert('RGB')
+        img2 = _img2.convert('RGB')
     
     if img1.size != img2.size:
         print(f"  -> [FAIL] Size mismatch: Baseline {img1.size} vs Snapshot {img2.size}. (DPI Scaling Issue?)")
@@ -114,6 +115,35 @@ def compare_images(
     )
     return "PASS"
 
+def save_failed_bundle(baseline_path: Path, snapshot_path: Path, diff_path: Path, out_dir: Path):
+    """
+    Save failed comparison artifacts into a single folder using suffix naming:
+      *_baseline.png, *_current.png, *_diff.png
+    """
+    stem = snapshot_path.stem
+    if stem.endswith("_seq") or stem.endswith("_traj"):
+        base_stem = stem
+    else:
+        base_stem = snapshot_path.stem
+
+    target_baseline = out_dir / f"{base_stem}_baseline.png"
+    target_current = out_dir / f"{base_stem}_current.png"
+    target_diff = out_dir / f"{base_stem}_diff.png"
+
+    def copy_if_needed(src: Path, dst: Path):
+        if not src.exists():
+            return
+        try:
+            if src.resolve() == dst.resolve():
+                return
+        except Exception:
+            pass
+        shutil.copy2(src, dst)
+
+    copy_if_needed(baseline_path, target_baseline)
+    copy_if_needed(snapshot_path, target_current)
+    copy_if_needed(diff_path, target_diff)
+
 def main():
     parser = argparse.ArgumentParser(description="Run Visual Regression Tests for SeqEyes.")
     parser.add_argument("--seq-dir", type=str, default="test/seq_files", help="Directory containing .seq files")
@@ -143,6 +173,14 @@ def main():
         
     out_dir.mkdir(parents=True, exist_ok=True)
     baseline_dir.mkdir(parents=True, exist_ok=True)
+
+    # Remove stale failed bundles from previous runs
+    for p in out_dir.glob("*_baseline.png"):
+        p.unlink(missing_ok=True)
+    for p in out_dir.glob("*_current.png"):
+        p.unlink(missing_ok=True)
+    for p in out_dir.glob("*_diff.png"):
+        p.unlink(missing_ok=True)
     
     if not HAS_PILLOW:
         print("\n[WARNING] Pillow is not installed. Will skip image comparison.")
@@ -246,6 +284,7 @@ def main():
                     changed_threshold=args.changed_threshold,
                 )
                 if res == "FAIL":
+                    save_failed_bundle(base_path, snap_path, diff_path, out_dir)
                     has_fail = True
                 elif res == "SKIP":
                     has_skip = True

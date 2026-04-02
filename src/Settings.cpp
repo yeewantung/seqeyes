@@ -6,7 +6,13 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDateTime>
+#include <QFileInfo>
+#include <QJsonArray>
 #include <cmath>
+
+namespace {
+constexpr int kMaxAscHistoryItems = 16;
+}
 
 Settings& Settings::getInstance()
 {
@@ -421,6 +427,27 @@ void Settings::saveSettings()
     obj["showTeApproximateDialog"] = m_showTeApproximateDialog;
     obj["showTrajectoryApproximateDialog"] = m_showTrajectoryApproximateDialog;
     obj["showExtensionTooltip"] = m_showExtensionTooltip;
+    obj["pnsAscPath"] = m_pnsAscPath;
+    {
+        QJsonArray arr;
+        for (const QString& p : m_pnsAscHistory) {
+            arr.append(p);
+        }
+        obj["pnsAscHistory"] = arr;
+    }
+    {
+        QJsonObject nickObj;
+        for (auto it = m_pnsAscNicknames.constBegin(); it != m_pnsAscNicknames.constEnd(); ++it) {
+            if (!it.key().trimmed().isEmpty()) {
+                nickObj[it.key()] = it.value();
+            }
+        }
+        obj["pnsAscNicknames"] = nickObj;
+    }
+    obj["pnsShowX"] = m_pnsShowX;
+    obj["pnsShowY"] = m_pnsShowY;
+    obj["pnsShowZ"] = m_pnsShowZ;
+    obj["pnsShowNorm"] = m_pnsShowNorm;
     // Input behavior
     obj["zoomInputMode"] = getZoomInputModeString();
     obj["panWheelEnabled"] = m_panWheelEnabled;
@@ -545,6 +572,44 @@ void Settings::loadSettings()
     m_showTeApproximateDialog = obj.value("showTeApproximateDialog").toBool(true);
     m_showTrajectoryApproximateDialog = obj.value("showTrajectoryApproximateDialog").toBool(true);
     m_showExtensionTooltip = obj.value("showExtensionTooltip").toBool(false);
+    m_pnsAscPath = obj.value("pnsAscPath").toString("").trimmed();
+    m_pnsAscHistory.clear();
+    if (obj.value("pnsAscHistory").isArray()) {
+        const QJsonArray arr = obj.value("pnsAscHistory").toArray();
+        for (const QJsonValue& v : arr) {
+            if (!v.isString()) {
+                continue;
+            }
+            const QString p = v.toString().trimmed();
+            if (!p.isEmpty() && !m_pnsAscHistory.contains(p)) {
+                m_pnsAscHistory.append(p);
+            }
+        }
+    }
+    if (!m_pnsAscPath.isEmpty() && !m_pnsAscHistory.contains(m_pnsAscPath)) {
+        m_pnsAscHistory.prepend(m_pnsAscPath);
+    }
+    while (m_pnsAscHistory.size() > kMaxAscHistoryItems) {
+        m_pnsAscHistory.removeLast();
+    }
+    m_pnsAscNicknames.clear();
+    if (obj.value("pnsAscNicknames").isObject()) {
+        const QJsonObject nickObj = obj.value("pnsAscNicknames").toObject();
+        for (auto it = nickObj.constBegin(); it != nickObj.constEnd(); ++it) {
+            if (!it.value().isString()) {
+                continue;
+            }
+            const QString p = it.key().trimmed();
+            const QString n = it.value().toString().trimmed();
+            if (!p.isEmpty()) {
+                m_pnsAscNicknames.insert(p, n);
+            }
+        }
+    }
+    m_pnsShowX = obj.value("pnsShowX").toBool(false);
+    m_pnsShowY = obj.value("pnsShowY").toBool(false);
+    m_pnsShowZ = obj.value("pnsShowZ").toBool(true);
+    m_pnsShowNorm = obj.value("pnsShowNorm").toBool(true);
 
     // Load extension labels (merge onto defaults)
     if (obj.contains("extensionLabels") && obj.value("extensionLabels").isObject())
@@ -585,6 +650,13 @@ void Settings::resetToDefaults()
     m_showTeApproximateDialog = true;
     m_showTrajectoryApproximateDialog = true;
     m_showExtensionTooltip = false;
+    m_pnsAscPath.clear();
+    m_pnsAscHistory.clear();
+    m_pnsAscNicknames.clear();
+    m_pnsShowX = false;
+    m_pnsShowY = false;
+    m_pnsShowZ = true;
+    m_pnsShowNorm = true;
     m_panLeftKey = QStringLiteral("A");
     m_panRightKey = QStringLiteral("D");
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
@@ -722,4 +794,184 @@ void Settings::setShowExtensionTooltip(bool show)
 bool Settings::getShowExtensionTooltip() const
 {
     return m_showExtensionTooltip;
+}
+
+QString Settings::getPnsAscPath() const
+{
+    return m_pnsAscPath;
+}
+
+QStringList Settings::getPnsAscHistory() const
+{
+    return m_pnsAscHistory;
+}
+
+QString Settings::getPnsAscNickname(const QString& path) const
+{
+    const QString key = path.trimmed();
+    if (key.isEmpty()) {
+        return QString();
+    }
+    return m_pnsAscNicknames.value(key).trimmed();
+}
+
+QMap<QString, QString> Settings::getPnsAscNicknames() const
+{
+    return m_pnsAscNicknames;
+}
+
+void Settings::setPnsAscPath(const QString& path)
+{
+    const QString normalized = path.trimmed();
+    bool changed = false;
+    if (m_pnsAscPath != normalized) {
+        m_pnsAscPath = normalized;
+        changed = true;
+    }
+    if (!normalized.isEmpty()) {
+        const int existing = m_pnsAscHistory.indexOf(normalized);
+        if (existing >= 0) {
+            if (existing != 0) {
+                m_pnsAscHistory.removeAt(existing);
+                m_pnsAscHistory.prepend(normalized);
+                changed = true;
+            }
+        } else {
+            m_pnsAscHistory.prepend(normalized);
+            changed = true;
+        }
+    }
+    while (m_pnsAscHistory.size() > kMaxAscHistoryItems) {
+        m_pnsAscHistory.removeLast();
+        changed = true;
+    }
+    if (changed) {
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setPnsAscHistory(const QStringList& history)
+{
+    QStringList normalized;
+    for (const QString& p : history) {
+        const QString trimmed = p.trimmed();
+        if (trimmed.isEmpty() || normalized.contains(trimmed)) {
+            continue;
+        }
+        normalized.append(trimmed);
+        if (normalized.size() >= kMaxAscHistoryItems) {
+            break;
+        }
+    }
+    if (!m_pnsAscPath.isEmpty()) {
+        normalized.removeAll(m_pnsAscPath);
+        normalized.prepend(m_pnsAscPath);
+    }
+    if (m_pnsAscHistory != normalized) {
+        m_pnsAscHistory = normalized;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setPnsAscNickname(const QString& path, const QString& nickname)
+{
+    const QString key = path.trimmed();
+    if (key.isEmpty()) {
+        return;
+    }
+    const QString nick = nickname.trimmed();
+    const QString prev = m_pnsAscNicknames.value(key).trimmed();
+    if (prev == nick) {
+        return;
+    }
+    if (nick.isEmpty()) {
+        m_pnsAscNicknames.remove(key);
+    } else {
+        m_pnsAscNicknames.insert(key, nick);
+    }
+    saveSettings();
+    emit settingsChanged();
+}
+
+int Settings::removeInvalidPnsAscHistoryPaths()
+{
+    QStringList valid;
+    for (const QString& p : m_pnsAscHistory) {
+        if (QFileInfo::exists(p)) {
+            valid.append(p);
+        }
+    }
+    const int removed = m_pnsAscHistory.size() - valid.size();
+    if (!m_pnsAscPath.isEmpty() && QFileInfo::exists(m_pnsAscPath) && !valid.contains(m_pnsAscPath)) {
+        valid.prepend(m_pnsAscPath);
+    }
+    QString nextCurrent = m_pnsAscPath;
+    if (!nextCurrent.isEmpty() && !QFileInfo::exists(nextCurrent)) {
+        nextCurrent.clear();
+    }
+    if (removed > 0 || valid != m_pnsAscHistory || nextCurrent != m_pnsAscPath) {
+        m_pnsAscHistory = valid;
+        m_pnsAscPath = nextCurrent;
+        saveSettings();
+        emit settingsChanged();
+    }
+    return removed;
+}
+
+void Settings::setPnsChannelVisibleX(bool visible)
+{
+    if (m_pnsShowX != visible) {
+        m_pnsShowX = visible;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setPnsChannelVisibleY(bool visible)
+{
+    if (m_pnsShowY != visible) {
+        m_pnsShowY = visible;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setPnsChannelVisibleZ(bool visible)
+{
+    if (m_pnsShowZ != visible) {
+        m_pnsShowZ = visible;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setPnsChannelVisibleNorm(bool visible)
+{
+    if (m_pnsShowNorm != visible) {
+        m_pnsShowNorm = visible;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+bool Settings::getPnsChannelVisibleX() const
+{
+    return m_pnsShowX;
+}
+
+bool Settings::getPnsChannelVisibleY() const
+{
+    return m_pnsShowY;
+}
+
+bool Settings::getPnsChannelVisibleZ() const
+{
+    return m_pnsShowZ;
+}
+
+bool Settings::getPnsChannelVisibleNorm() const
+{
+    return m_pnsShowNorm;
 }

@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QDir>
+#include <QFileInfo>
 #include <iostream>
 #include <sstream>
 #include <complex>
@@ -137,6 +138,9 @@ void PulseqLoader::ClearPulseqCache()
     m_kTrajectoryYAdc.clear();
     m_kTrajectoryZAdc.clear();
     m_kTimeAdcSec.clear();
+    m_pnsResult = PnsCalculator::Result{};
+    m_pnsAscPath.clear();
+    m_pnsStatusMessage.clear();
     m_usedExtensions.clear();
     m_adcPhaseCache.valid = false;
 
@@ -160,6 +164,7 @@ void PulseqLoader::ClearPulseqCache()
         std::cout << m_sPulseqFilePath.toStdString() << " Closed\n";
     }
     if (m_mainWindow) { m_mainWindow->setWindowFilePath(""); }
+    emit pnsDataUpdated();
 }
 
 /**
@@ -252,6 +257,9 @@ std::pair<int, int> PulseqLoader::ReadFileVersion(const std::string& filename)
 bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 {
     m_mainWindow->setEnabled(false);
+    // Keep the canonical loaded path for all loading entry points
+    // (file dialog, drag/drop, command line, reopen).
+    m_sPulseqFilePath = sPulseqFilePath;
 
     // First, read version information without loading the full file
     std::pair<int, int> version = ReadFileVersion(sPulseqFilePath.toStdString());
@@ -606,6 +614,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         // Show "SeqEyes - file.seq" only after a successful load.
         m_mainWindow->setLoadedFileTitle(sPulseqFilePath);
     }
+    recomputePnsFromSettings();
     m_mainWindow->setEnabled(true);
     return true;
 }
@@ -1496,6 +1505,72 @@ void PulseqLoader::rescaleTimeUnit()
         m_mainWindow->ui->customPlot->replot();
 }
 
+void PulseqLoader::recomputePnsFromSettings()
+{
+    m_pnsResult = PnsCalculator::Result{};
+    m_pnsStatusMessage.clear();
+    m_pnsAscPath = Settings::getInstance().getPnsAscPath().trimmed();
+
+    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2 || !m_spPulseqSeq)
+    {
+        m_pnsStatusMessage = QStringLiteral("Load a sequence to compute PNS.");
+        emit pnsDataUpdated();
+        return;
+    }
+
+    if (m_pnsAscPath.isEmpty())
+    {
+        m_pnsStatusMessage = QStringLiteral("PNS is not configured. Select a valid ASC profile in Settings > Safety.");
+        emit pnsDataUpdated();
+        return;
+    }
+
+    if (!QFileInfo::exists(m_pnsAscPath))
+    {
+        m_pnsStatusMessage = QStringLiteral("PNS ASC file not found: %1").arg(m_pnsAscPath);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    PnsCalculator::Hardware hw;
+    QString parseError;
+    if (!PnsCalculator::parseAscFile(m_pnsAscPath, hw, &parseError))
+    {
+        m_pnsStatusMessage = parseError;
+        emit pnsDataUpdated();
+        return;
+    }
+
+    std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
+    if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0)
+    {
+        m_pnsStatusMessage = QStringLiteral("GradientRasterTime definition is missing.");
+        emit pnsDataUpdated();
+        return;
+    }
+    const double gradientRasterUs = def[0] * 1e6;
+    const double gammaHzPerT = Settings::getInstance().getGamma();
+    m_pnsResult = PnsCalculator::calculate(
+        m_vecDecodeSeqBlocks,
+        vecBlockEdges,
+        tFactor,
+        gradientRasterUs,
+        gammaHzPerT,
+        hw);
+
+    if (!m_pnsResult.valid)
+    {
+        m_pnsStatusMessage = m_pnsResult.error;
+    }
+    else
+    {
+        m_pnsStatusMessage = m_pnsResult.ok
+            ? QStringLiteral("PNS prediction OK (max < 100%).")
+            : QStringLiteral("PNS warning: predicted level reaches/exceeds 100%.");
+    }
+    emit pnsDataUpdated();
+}
+
 void PulseqLoader::saveLastOpenDirectory()
 {
     QSettings settings;
@@ -1686,7 +1761,10 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
             if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0) return; // do not render without definition
             double gradRaster_us = def[0] * 1e6;
             double dt = gradRaster_us * tFactor;
-            double duration = numSamples * dt;
+            const bool oversampled = blk->isArbGradWithOversampling(channel) || (grad.timeShape == -1);
+            const double duration = oversampled
+                ? (static_cast<double>(numSamples) + 1.0) * 0.5 * dt
+                : static_cast<double>(numSamples) * dt;
             if (tStart >= visibleEnd || (tStart + duration) <= visibleStart) continue;
             int pxForBlock = std::max(1, int(std::round(duration / window * pixelWidth)));
             // Prefer LTTB decimation for shape fidelity
@@ -1694,7 +1772,16 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
             double ppp = (pxForBlock > 0) ? double(numSamples) / double(pxForBlock) : double(numSamples);
             if (!allowDecimateGrad || numSamples <= 64 || ppp <= 1.2) {
                 tBlk.reserve(numSamples); vBlk.reserve(numSamples);
-                for (int j=0;j<numSamples;++j){ tBlk.append(tStart + j*dt); vBlk.append(double(entry.norm[j]) * double(grad.amplitude)); }
+                for (int j = 0; j < numSamples; ++j) {
+                    // Match Pulseq semantics:
+                    // - center-raster arbitrary: sample j at (j+0.5)*dt
+                    // - oversampled arbitrary:   sample j at (j+1.0)*0.5*dt
+                    const double tj = oversampled
+                        ? (static_cast<double>(j) + 1.0) * 0.5 * dt
+                        : (static_cast<double>(j) + 0.5) * dt;
+                    tBlk.append(tStart + tj);
+                    vBlk.append(double(entry.norm[j]) * double(grad.amplitude));
+                }
             } else {
                 int target = std::min(numSamples, std::min(10000, int(std::round(pxForBlock*3.0))));
                 if (target <= 4 || pxForBlock <= 2) {
@@ -1708,9 +1795,17 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
                     QList<int> sorted = QList<int>(idxs.constBegin(), idxs.constEnd());
                     std::sort(sorted.begin(), sorted.end());
                     tBlk.reserve(sorted.size()); vBlk.reserve(sorted.size());
-                    for (int k : sorted){ tBlk.append(tStart + k*dt); vBlk.append(double(entry.norm[k]) * double(grad.amplitude)); }
+                    for (int k : sorted) {
+                        const double tk = oversampled
+                            ? (static_cast<double>(k) + 1.0) * 0.5 * dt
+                            : (static_cast<double>(k) + 0.5) * dt;
+                        tBlk.append(tStart + tk);
+                        vBlk.append(double(entry.norm[k]) * double(grad.amplitude));
+                    }
                 } else {
-                    QVector<double> dT, dV; lttbDownsampleUniform(entry.norm, tStart, dt, target, dT, dV);
+                    const double tFirst = tStart + 0.5 * dt;
+                    const double dtEff = oversampled ? (0.5 * dt) : dt;
+                    QVector<double> dT, dV; lttbDownsampleUniform(entry.norm, tFirst, dtEff, target, dT, dV);
                     tBlk = dT; vBlk.reserve(dV.size()); for (double val: dV){ vBlk.append(val * double(grad.amplitude)); }
                 }
             }
@@ -1921,9 +2016,12 @@ bool PulseqLoader::sampleGradAtTime(int channel, double time, int blockIdx, doub
         if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0) return false;
         double gradRaster_us = def[0] * 1e6; // seconds -> microseconds
         double dt = gradRaster_us * tFactor;
-        double tEnd = tStart + (n - 1) * dt;
-        if (time < tStart || time > tEnd) return false;
-        double u = (time - tStart) / dt;
+        const bool oversampled = blk->isArbGradWithOversampling(channel) || (grad.timeShape == -1);
+        const double tFirst = tStart + 0.5 * dt;
+        const double dtEff = oversampled ? (0.5 * dt) : dt;
+        const double tEnd = tFirst + (n - 1) * dtEff;
+        if (time < tFirst || time > tEnd) return false;
+        double u = (time - tFirst) / dtEff;
         int i0 = static_cast<int>(std::floor(u));
         int i1 = std::min(n - 1, i0 + 1);
         double alpha = u - i0;
