@@ -50,6 +50,8 @@ def main():
             marker_file.unlink()
         env = os.environ.copy()
         env["SEQEYES_HEADLESS_MARKER_FILE"] = str(marker_file)
+        env["SEQEYES_LIFECYCLE_MARKER_FILE"] = str(marker_file)
+        env["SEQEYES_LIFECYCLE_MARKERS"] = "1"
 
         print(f"[RUN] {f}")
         cp = subprocess.run([exe, "--headless", "--exit-after-load", str(f)], text=True, env=env)
