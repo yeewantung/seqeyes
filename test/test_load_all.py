@@ -39,12 +39,27 @@ def main():
 
     exe = detect_seqeye(args.bin_dir)
     seq_dir = Path(__file__).resolve().parents[0] / "seq_files"
+    marker_dir = Path(__file__).resolve().parents[0] / "headless_markers"
+    marker_dir.mkdir(parents=True, exist_ok=True)
     files = sorted(seq_dir.glob("*.seq"))
     passed = 0
     failed = 0
     for f in files:
+        marker_file = marker_dir / f"{f.name}.markers.log"
+        if marker_file.exists():
+            marker_file.unlink()
+        env = os.environ.copy()
+        env["SEQEYES_HEADLESS_MARKER_FILE"] = str(marker_file)
+
         print(f"[RUN] {f}")
-        cp = subprocess.run([exe, "--headless", "--exit-after-load", str(f)], text=True)
+        cp = subprocess.run([exe, "--headless", "--exit-after-load", str(f)], text=True, env=env)
+
+        if marker_file.exists():
+            for line in marker_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                print(f"[MARKER] {line}")
+        else:
+            print(f"[MARKER] no marker file: {marker_file}")
+
         if cp.returncode == 0:
             print(f"[PASS] {f}")
             passed += 1

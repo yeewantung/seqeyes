@@ -141,6 +141,14 @@ jobs:
       - name: Run Headless Load Test
         run: python test/test_load_all.py --bin-dir runtime/seqeyes
 
+      - name: Upload Headless Markers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-load-markers
+          path: test/headless_markers
+          if-no-files-found: warn
+
   performance:
     needs: build_windows
     runs-on: windows-latest
