@@ -1,0 +1,10 @@
+{
+"seqeyes": {
+    "inputs": [
+      {
+        "name": "filename",
+        "type": "file=*.seq"
+      }
+    ]
+  }
+}
