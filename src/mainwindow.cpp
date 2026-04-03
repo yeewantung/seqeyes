@@ -351,7 +351,7 @@ MainWindow::~MainWindow()
 
     // Ensure cleanup order: delete PulseqLoader before UI widgets it references
     // to avoid accessing destroyed UI elements during loader's ClearPulseqCache.
-    //SAFE_DELETE(m_pulseqLoader);
+    SAFE_DELETE(m_pulseqLoader);
 
     // Handlers are QObjects parented to MainWindow and will be deleted automatically.
     //SAFE_DELETE(m_pVersionLabel);

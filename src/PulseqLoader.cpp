@@ -51,7 +51,8 @@ PulseqLoader::PulseqLoader(MainWindow* mainWindow)
 
 PulseqLoader::~PulseqLoader()
 {
-    ClearPulseqCache();
+    // Destruction can happen during MainWindow teardown; avoid touching UI here.
+    ClearPulseqCache(false);
 }
 
 void PulseqLoader::OpenPulseqFile()
@@ -137,9 +138,9 @@ bool PulseqLoader::ClosePulseqFile()
     return true;
 }
 
-void PulseqLoader::ClearPulseqCache()
+void PulseqLoader::ClearPulseqCache(bool withUi)
 {
-    if (m_mainWindow)
+    if (withUi && m_mainWindow)
     {
         m_mainWindow->clearLoadedFileTitle();
         if (auto lbl = m_mainWindow->getVersionLabel()) { lbl->setText(""); lbl->setVisible(false); }

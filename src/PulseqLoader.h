@@ -185,7 +185,7 @@ private:
     const LabelSnapshot* labelSnapshotAfterBlock(int blockIdx) const;
 
     void buildShapeScaleAggregates();
-    void ClearPulseqCache();
+    void ClearPulseqCache(bool withUi = true);
     bool IsBlockRf(const float* fAmp, const float* fPhase, const int& iSamples);
     void updateEchoAndExcitationMetadata(int versionMajor, int versionMinor);
     void computeKSpaceTrajectory();
