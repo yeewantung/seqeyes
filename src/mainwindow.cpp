@@ -353,6 +353,17 @@ MainWindow::~MainWindow()
     // to avoid accessing destroyed UI elements during loader's ClearPulseqCache.
     SAFE_DELETE(m_pulseqLoader);
 
+    // Teardown hardening: stop event callbacks and destroy handlers while UI is still alive.
+    if (m_interactionHandler)
+    {
+        removeEventFilter(m_interactionHandler);
+        if (ui && ui->customPlot)
+            ui->customPlot->removeEventFilter(m_interactionHandler);
+    }
+    SAFE_DELETE(m_interactionHandler);
+    SAFE_DELETE(m_trManager);
+    SAFE_DELETE(m_waveformDrawer);
+
     // Handlers are QObjects parented to MainWindow and will be deleted automatically.
     //SAFE_DELETE(m_pVersionLabel);
     //SAFE_DELETE(m_pProgressBar);
