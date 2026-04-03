@@ -45,24 +45,54 @@ PulseqLoader::PulseqLoader(MainWindow* mainWindow)
     
     // Load last open directory from settings
     loadLastOpenDirectory();
+    loadRecentFiles();
+    updateRecentFilesMenu();
 }
 
 PulseqLoader::~PulseqLoader()
 {
-    ClearPulseqCache();
+    // Destruction can happen during MainWindow teardown; avoid touching UI here.
+    ClearPulseqCache(false);
 }
 
 void PulseqLoader::OpenPulseqFile()
 {
+#ifdef Q_OS_MAC
+    qCritical() << "[MENU TRACE] PulseqLoader::OpenPulseqFile enter"
+                << "mainEnabled=" << (m_mainWindow ? m_mainWindow->isEnabled() : false);
+#endif
     // Use last open directory if available, otherwise use current path
     QString startDir = m_sLastOpenDirectory.isEmpty() ? QDir::currentPath() : m_sLastOpenDirectory;
+    if (!QDir(startDir).exists())
+    {
+        startDir = QDir::homePath();
+    }
     
+    QFileDialog::Options options;
+#ifdef Q_OS_MAC
+    // macOS native panel can sporadically reject immediately in this app context.
+    // Use Qt's dialog implementation for stable behavior.
+    options |= QFileDialog::DontUseNativeDialog;
+#endif
+    QWidget* parentForDialog = m_mainWindow;
+#ifdef Q_OS_MAC
+    parentForDialog = nullptr;
+#endif
     m_sPulseqFilePath = QFileDialog::getOpenFileName(
-        m_mainWindow,
+        parentForDialog,
         "Select a Pulseq File",
         startDir,
-        "Text Files (*.seq);;All Files (*)"
+        "Text Files (*.seq);;All Files (*)",
+        nullptr,
+        options
     );
+
+#ifdef Q_OS_MAC
+    if (!m_sPulseqFilePath.isEmpty())
+        qCritical() << "[MENU TRACE] PulseqLoader::OpenPulseqFile accepted" << m_sPulseqFilePath;
+    else
+        qCritical() << "[MENU TRACE] PulseqLoader::OpenPulseqFile canceled";
+#endif
 
     if (!m_sPulseqFilePath.isEmpty())
     {
@@ -91,13 +121,26 @@ void PulseqLoader::ReOpenPulseqFile()
 
 bool PulseqLoader::ClosePulseqFile()
 {
+#ifdef Q_OS_MAC
+    qCritical() << "[MENU TRACE] PulseqLoader::ClosePulseqFile enter";
+#endif
     ClearPulseqCache();
+    if (m_mainWindow && m_mainWindow->getWaveformDrawer())
+        m_mainWindow->getWaveformDrawer()->clearAllWaveformData();
+    if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
+    {
+        m_mainWindow->refreshTrajectoryPlotData();
+    }
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+    {
+        m_mainWindow->ui->customPlot->replot();
+    }
     return true;
 }
 
-void PulseqLoader::ClearPulseqCache()
+void PulseqLoader::ClearPulseqCache(bool withUi)
 {
-    if (m_mainWindow)
+    if (withUi && m_mainWindow)
     {
         m_mainWindow->clearLoadedFileTitle();
         if (auto lbl = m_mainWindow->getVersionLabel()) { lbl->setText(""); lbl->setVisible(false); }
@@ -613,10 +656,118 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     {
         // Show "SeqEyes - file.seq" only after a successful load.
         m_mainWindow->setLoadedFileTitle(sPulseqFilePath);
+
+        if (auto* coord = m_mainWindow->getCoordLabel())
+        {
+            qDebug().noquote()
+                << "[UI_GEOM] after-load"
+                << "windowSize=" << m_mainWindow->size()
+                << "coordTextLen=" << coord->text().size()
+                << "coordSizeHintW=" << coord->sizeHint().width()
+                << "coordMinW=" << coord->minimumWidth();
+        }
     }
-    recomputePnsFromSettings();
+    addRecentFile(sPulseqFilePath);
     m_mainWindow->setEnabled(true);
     return true;
+}
+
+void PulseqLoader::loadRecentFiles()
+{
+    QSettings settings;
+    const QStringList recent = settings.value("recentPulseqFiles").toStringList();
+    m_listRecentPulseqFilePaths = recent;
+    while (m_listRecentPulseqFilePaths.size() > 10)
+    {
+        m_listRecentPulseqFilePaths.removeLast();
+    }
+}
+
+void PulseqLoader::saveRecentFiles()
+{
+    QSettings settings;
+    settings.setValue("recentPulseqFiles", m_listRecentPulseqFilePaths);
+}
+
+void PulseqLoader::addRecentFile(const QString& filePath)
+{
+    if (filePath.isEmpty())
+        return;
+
+    const QString normalized = QFileInfo(filePath).absoluteFilePath();
+    if (normalized.isEmpty())
+        return;
+
+    m_listRecentPulseqFilePaths.removeAll(normalized);
+    m_listRecentPulseqFilePaths.prepend(normalized);
+    while (m_listRecentPulseqFilePaths.size() > 10)
+    {
+        m_listRecentPulseqFilePaths.removeLast();
+    }
+
+    saveRecentFiles();
+    updateRecentFilesMenu();
+}
+
+void PulseqLoader::clearRecentFiles()
+{
+    m_listRecentPulseqFilePaths.clear();
+    saveRecentFiles();
+    updateRecentFilesMenu();
+}
+
+void PulseqLoader::updateRecentFilesMenu()
+{
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->menuRecent_Files)
+        return;
+
+    QMenu* recentMenu = m_mainWindow->ui->menuRecent_Files;
+    recentMenu->clear();
+
+    QStringList validFiles;
+    for (const QString& path : m_listRecentPulseqFilePaths)
+    {
+        if (path.isEmpty())
+            continue;
+        if (QFileInfo::exists(path))
+            validFiles << path;
+    }
+    m_listRecentPulseqFilePaths = validFiles;
+
+    if (m_listRecentPulseqFilePaths.isEmpty())
+    {
+        QAction* emptyAction = recentMenu->addAction("(No recent files)");
+        emptyAction->setEnabled(false);
+    }
+    else
+    {
+        for (int i = 0; i < m_listRecentPulseqFilePaths.size(); ++i)
+        {
+            const QString path = m_listRecentPulseqFilePaths[i];
+            QFileInfo fi(path);
+            const QString label = QString("%1 %2").arg(i + 1).arg(fi.fileName());
+            QAction* recentAction = recentMenu->addAction(label);
+            recentAction->setToolTip(path);
+            recentAction->setData(path);
+            connect(recentAction, &QAction::triggered, this, [this, recentAction]() {
+                const QString selectedPath = recentAction->data().toString();
+                if (selectedPath.isEmpty())
+                    return;
+                m_sPulseqFilePath = selectedPath;
+                m_sPulseqFilePathCache = selectedPath;
+                QFileInfo fi(selectedPath);
+                m_sLastOpenDirectory = fi.absolutePath();
+                saveLastOpenDirectory();
+                LoadPulseqFile(selectedPath);
+            });
+        }
+    }
+
+    recentMenu->addSeparator();
+    QAction* clearAction = recentMenu->addAction("Clear menu");
+    connect(clearAction, &QAction::triggered, this, &PulseqLoader::clearRecentFiles);
+
+    saveRecentFiles();
 }
 
 void PulseqLoader::buildLabelSnapshotCache()

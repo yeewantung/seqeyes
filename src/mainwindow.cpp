@@ -15,7 +15,6 @@
 #include <QFileInfo>
 #include <QFileDialog>
 #include <QFile>
-#include <QTextStream>
 #include <QMessageBox>
 #include <QDebug>
 #include <QLabel>
@@ -137,7 +136,7 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle("SeqEyes");
 
     // Hide the top toolbar by default to save vertical space (especially for small tiled windows like --layout 211).
-    // File/View menus already contain the core actions, and Measure ¦¤t is added to View below.
+    // File/View menus already contain the core actions, and Measure ï¿½ï¿½t is added to View below.
     if (ui->toolBar)
         ui->toolBar->setVisible(false);
 
@@ -191,6 +190,11 @@ MainWindow::MainWindow(QWidget* parent)
         chosen.setStyleStrategy(QFont::PreferAntialias);
         m_pCoordLabel->setFont(chosen);
     }
+    // Keep status text from forcing main-window width growth when opening files.
+    // Use Ignored horizontally on all platforms so long status text compresses
+    // instead of expanding the main window width.
+    m_pCoordLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_pCoordLabel->setMinimumWidth(0);
     ui->statusbar->addWidget(m_pCoordLabel);
     m_pPnsStatusLabel = new QLabel(this);
     m_pPnsStatusLabel->setFont(m_pCoordLabel->font());
@@ -316,12 +320,23 @@ MainWindow::~MainWindow()
     // to avoid accessing destroyed UI elements during loader's ClearPulseqCache.
     SAFE_DELETE(m_pulseqLoader);
 
+    // Teardown hardening: stop event callbacks and destroy handlers while UI is still alive.
+    if (m_interactionHandler)
+    {
+        removeEventFilter(m_interactionHandler);
+        if (ui && ui->customPlot)
+            ui->customPlot->removeEventFilter(m_interactionHandler);
+    }
+    SAFE_DELETE(m_interactionHandler);
+    SAFE_DELETE(m_trManager);
+    SAFE_DELETE(m_waveformDrawer);
+
     // Handlers are QObjects parented to MainWindow and will be deleted automatically.
-    SAFE_DELETE(m_pVersionLabel);
-    SAFE_DELETE(m_pProgressBar);
-    SAFE_DELETE(m_pCoordLabel);
-    SAFE_DELETE(m_pPnsStatusLabel);
-    SAFE_DELETE(m_settingsDialog);
+    //SAFE_DELETE(m_pVersionLabel);
+    //SAFE_DELETE(m_pProgressBar);
+    //SAFE_DELETE(m_pCoordLabel);
+    //SAFE_DELETE(m_pPnsStatusLabel);
+    //SAFE_DELETE(m_settingsDialog);
     delete ui;
 }
 
@@ -455,20 +470,59 @@ void MainWindow::setupIcons()
 
 void MainWindow::InitSlots()
 {
+    // Use explicit menu roles to avoid macOS native-menubar heuristics
+    // re-routing actions in unexpected ways.
+    if (ui->actionOpen)
+    {
+        ui->actionOpen->setMenuRole(QAction::NoRole);
+        ui->actionOpen->setShortcut(QKeySequence::Open);
+        ui->actionOpen->setText(tr("Open..."));
+        ui->actionOpen->setEnabled(true);
+    }
+    if (ui->actionReopen)
+    {
+        ui->actionReopen->setMenuRole(QAction::NoRole);
+        ui->actionReopen->setEnabled(true);
+    }
+    if (ui->actionCloseFile)
+    {
+        ui->actionCloseFile->setMenuRole(QAction::NoRole);
+        ui->actionCloseFile->setShortcut(QKeySequence::Close);
+        ui->actionCloseFile->setText(tr("Close File"));
+        ui->actionCloseFile->setEnabled(true);
+    }
+    if (ui->actionExit)
+    {
+        ui->actionExit->setMenuRole(QAction::QuitRole);
+        ui->actionExit->setShortcut(QKeySequence::Quit);
+    }
+    if (ui->actionAbout)
+    {
+        ui->actionAbout->setMenuRole(QAction::AboutRole);
+    }
+
+    if (ui->actionColorSettings)
+    {
+        ui->actionColorSettings->setMenuRole(QAction::NoRole);
+        ui->actionColorSettings->setText(tr("Color Settings"));
+        ui->actionColorSettings->setEnabled(true);
+    }
+
     // File Menu
-    connect(ui->actionOpen, &QAction::triggered, m_pulseqLoader, &PulseqLoader::OpenPulseqFile);
-    connect(ui->actionReopen, &QAction::triggered, m_pulseqLoader, &PulseqLoader::ReOpenPulseqFile);
-    connect(ui->actionCloseFile, &QAction::triggered, m_pulseqLoader, &PulseqLoader::ClosePulseqFile);
+    connect(ui->actionOpen, &QAction::triggered, this, &MainWindow::onActionOpenTriggered);
+    connect(ui->actionReopen, &QAction::triggered, this, &MainWindow::onActionReopenTriggered);
+    connect(ui->actionCloseFile, &QAction::triggered, this, &MainWindow::onActionCloseFileTriggered);
 
     // View Menu
     connect(ui->actionResetView, &QAction::triggered, m_waveformDrawer, &WaveformDrawer::ResetView);
+    // Keep Color Settings label/placement unchanged; behavior will be handled later.
     // Rename and repurpose to a single entry: "Undersample curves" (checked = downsampling ON)
     ui->actionShowFullDetail->setText("Undersample curves");
     ui->actionShowFullDetail->setToolTip("Downsample curves for performance");
     ui->actionShowFullDetail->setChecked(true); // default: undersampling enabled
     connect(ui->actionShowFullDetail, &QAction::toggled, this, &MainWindow::onShowFullDetailToggled);
 
-    // View ¡ú Log
+    // View ï¿½ï¿½ Log
     if (ui->menuView)
     {
         QAction* logAction = new QAction(tr("Log"), this);
@@ -505,6 +559,36 @@ void MainWindow::InitSlots()
     connect(ui->customPlot, &QCustomPlot::mouseRelease, m_interactionHandler, &InteractionHandler::onMouseRelease);
     connect(ui->customPlot, &QCustomPlot::customContextMenuRequested, m_interactionHandler, &InteractionHandler::showContextMenu);
     ui->customPlot->setContextMenuPolicy(Qt::CustomContextMenu);
+}
+
+void MainWindow::onActionOpenTriggered()
+{
+#ifdef Q_OS_MAC
+    qCritical() << "[MENU TRACE] MainWindow::onActionOpenTriggered";
+#endif
+    if (m_pulseqLoader)
+    {
+        m_pulseqLoader->OpenPulseqFile();
+    }
+}
+
+void MainWindow::onActionReopenTriggered()
+{
+    if (m_pulseqLoader)
+    {
+        m_pulseqLoader->ReOpenPulseqFile();
+    }
+}
+
+void MainWindow::onActionCloseFileTriggered()
+{
+#ifdef Q_OS_MAC
+    qCritical() << "[MENU TRACE] MainWindow::onActionCloseFileTriggered";
+#endif
+    if (m_pulseqLoader)
+    {
+        m_pulseqLoader->ClosePulseqFile();
+    }
 }
 
 void MainWindow::InitStatusBar()
@@ -572,13 +656,34 @@ void MainWindow::setupSettingsMenu()
         }
     }
 
-    // Add a top-level Settings action that opens the dialog directly, placed before Help
-    QAction* settingsAction = new QAction("&Settings", this);
+    // Keep Settings discoverable across platforms while respecting native macOS conventions.
+    QAction* settingsAction = nullptr;
+#ifdef Q_OS_MAC
+    settingsAction = new QAction(tr("Preferences"), this);
+    // Keep explicit label stable on macOS; PreferencesRole may be rewritten
+    // by native menubar heuristics (e.g. shown as "Settings").
+    settingsAction->setMenuRole(QAction::NoRole);
+    settingsAction->setShortcut(QKeySequence::Preferences);
+#else
+    settingsAction = new QAction(tr("Settings"), this);
+    settingsAction->setMenuRole(QAction::NoRole);
     settingsAction->setShortcut(QKeySequence("Ctrl+,"));
+#endif
     settingsAction->setStatusTip("Open application settings");
     connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettings);
 
-    // Try to insert before the Help menu so Help stays rightmost
+    // On macOS, place under View (it will also be available in the app menu via PreferencesRole).
+    // On other platforms, keep the current top-level placement before Help.
+#ifdef Q_OS_MAC
+    if (ui && ui->menuView)
+    {
+        ui->menuView->addSeparator();
+        ui->menuView->addAction(settingsAction);
+        return;
+    }
+#endif
+
+    // Insert before the Help menu so Help stays rightmost.
     QAction* helpTop = nullptr;
     for (QAction* act : menuBar()->actions())
     {
@@ -614,7 +719,7 @@ void MainWindow::onTimeUnitChanged()
     m_pulseqLoader->ReOpenPulseqFile();
 
     // Restore the viewport so the user keeps seeing the same physical time span
-    // (e.g. 0-200 ms ¡ú 0-200000 us).
+    // (e.g. 0-200 ms ï¿½ï¿½ 0-200000 us).
     if (hasRange && oldFactor != 0.0)
     {
         double newFactor = m_pulseqLoader->getTFactor();
@@ -704,11 +809,11 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     QPen trajPen(Qt::blue);
     trajPen.setWidthF(1.5);
     m_pTrajectoryCurve->setPen(trajPen);
-    // ADC sampling points ¡ª QCPCurve kept hidden as data container;
+    // ADC sampling points ï¿½ï¿½ QCPCurve kept hidden as data container;
     // actual rendering uses QImage rasterizer (see renderTrajectoryScatter).
     m_pTrajectorySamplesGraph = new QCPCurve(m_pTrajectoryPlot->xAxis, m_pTrajectoryPlot->yAxis);
     m_pTrajectorySamplesGraph->setVisible(false);
-    // Rasterized scatter pixmap ¡ª replaces QCPCurve scatter for performance
+    // Rasterized scatter pixmap ï¿½ï¿½ replaces QCPCurve scatter for performance
     m_pTrajectoryScatterItem = new QCPItemPixmap(m_pTrajectoryPlot);
     m_pTrajectoryScatterItem->setVisible(false);
     m_pTrajectoryScatterItem->setScaled(false);
@@ -848,7 +953,7 @@ void MainWindow::setTrajectoryVisible(bool show)
 // Rasterized scatter renderer: paints ADC dots directly into a QImage via scanLine
 // pixel writes and displays via QCPItemPixmap. This is ~50x faster than QCPCurve
 // scatter (which calls QPainter::drawEllipse per point). Every data point is rendered
-// ¡ª no downsampling, no visual loss. Re-called on every axis range change (drag/zoom).
+// ï¿½ï¿½ no downsampling, no visual loss. Re-called on every axis range change (drag/zoom).
 void MainWindow::renderTrajectoryScatter()
 {
     if (!m_pTrajectoryPlot || !m_pTrajectoryScatterItem || !m_showKtrajAdc)
@@ -1128,7 +1233,7 @@ void MainWindow::refreshTrajectoryPlotData()
     filterScatter(tAdc, kxAdc, kyAdc, limitToView && !tAdc.isEmpty(), kxAdcSubset, kyAdcSubset);
 
     // Store scatter data for the QImage rasterizer (renderTrajectoryScatter).
-    // No downsampling needed ¡ª scanLine pixel writes are fast enough for any point count.
+    // No downsampling needed ï¿½ï¿½ scanLine pixel writes are fast enough for any point count.
     auto scaleVec = [&](QVector<double>& v) {
         if (trajScale != 1.0) {
             double s = std::abs(trajScale);
@@ -1338,7 +1443,7 @@ void MainWindow::enforceTrajectoryAspect(bool queueReplot)
     double newSpanY = spanY;
 
     const double ratio = pixelsPerUnitX / pixelsPerUnitY;
-    constexpr double kAspectTolerance = 0.03; // allow ¡À3% mismatch before correcting
+    constexpr double kAspectTolerance = 0.03; // allow ï¿½ï¿½3% mismatch before correcting
     if (std::abs(ratio - 1.0) <= kAspectTolerance)
     {
         if (queueReplot)
@@ -1756,8 +1861,16 @@ void MainWindow::exportTrajectory()
         return;
     }
 
+    QFileDialog::Options options;
+    QWidget* parentForDialog = this;
+#ifdef Q_OS_MAC
+    // Match the Open-file workaround: native macOS panel can fail to appear
+    // in this app context, so use Qt dialog implementation with no parent.
+    options |= QFileDialog::DontUseNativeDialog;
+    parentForDialog = nullptr;
+#endif
     QString exportDir = QFileDialog::getExistingDirectory(
-        this, tr("Select export folder"), QDir::currentPath());
+        parentForDialog, tr("Select export folder"), QDir::currentPath(), options);
     if (exportDir.isEmpty())
         return;
 
@@ -1963,11 +2076,11 @@ void MainWindow::showUsage()
         "<h3>SeqEyes Usage Guide</h3>"
 
         "<p><b>Navigation & Viewing:</b><br>"
-        "? <b>Zoom / Pan:</b> Controlled by Settings ¡ú Interactions.<br>"
+        "? <b>Zoom / Pan:</b> Controlled by Settings ï¿½ï¿½ Interactions.<br>"
         "&nbsp;&nbsp;Default: Zoom = Mouse wheel; Pan = Drag.<br>"
-        "? <b>Reset View:</b> View ¡ú Reset View<br>"
+        "? <b>Reset View:</b> View ï¿½ï¿½ Reset View<br>"
         "? <b>Update Displayed Region:</b><br>"
-        "&nbsp;&nbsp;Adjust the <b>Time</b> window, the <b>TR</b> range, or the <b>Block index</b> (Start¨CEnd/Inc) to change the visible portion of the sequence.</p>"
+        "&nbsp;&nbsp;Adjust the <b>Time</b> window, the <b>TR</b> range, or the <b>Block index</b> (Startï¿½CEnd/Inc) to change the visible portion of the sequence.</p>"
     );
 }
 

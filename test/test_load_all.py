@@ -45,6 +45,7 @@ def main():
     for f in files:
         print(f"[RUN] {f}")
         cp = subprocess.run([exe, "--headless", "--exit-after-load", str(f)], text=True)
+
         if cp.returncode == 0:
             print(f"[PASS] {f}")
             passed += 1

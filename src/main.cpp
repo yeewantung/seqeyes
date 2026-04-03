@@ -21,13 +21,14 @@
 #include <QMessageBox>
 #include <QCheckBox>
 #include <QCoreApplication>
-#include <QTextStream>
+#include <cstdio>
 #ifdef _WIN32
 #  include <Windows.h>
 #endif
 
 // Use a semantic minimum level rather than QtMsgType ordering (QtMsgType values are non-monotonic)
 static Settings::LogLevel g_minLogLevel = Settings::LogLevel::Critical;
+
 static void qtLogFilter(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
 {
     auto shouldEmit = [](QtMsgType t)->bool {
@@ -49,8 +50,13 @@ static void qtLogFilter(QtMsgType type, const QMessageLogContext& ctx, const QSt
     if (!shouldEmit(type))
         return;
 
-    // Route all messages through LogManager so they appear in the GUI log window.
-    LogManager::getInstance().appendFromQt(type, ctx, msg);
+    // Route messages through LogManager so they appear in the GUI log window.
+    // Avoid touching QObject singletons during shutdown/teardown.
+    QCoreApplication* app = QCoreApplication::instance();
+    if (app && !QCoreApplication::closingDown())
+    {
+        LogManager::getInstance().appendFromQt(type, ctx, msg);
+    }
 
     // Keep writing to stderr for headless / test binaries.
     fprintf(stderr, "%s\n", msg.toLocal8Bit().constData());
@@ -256,103 +262,122 @@ int main(int argc, char *argv[])
     app.setApplicationVersion(SEQEYES_APP_VERSION_PLAIN);
     // Force LTR across the whole app to avoid inverted scrollbars/RTL behavior on some platforms/styles.
     app.setLayoutDirection(Qt::LeftToRight);
-    
-    // Set up command line parser
-    QCommandLineParser parser;
-    parser.setApplicationDescription("SeqEyes - Pulseq Sequence Viewer");
-    registerOptions(parser, /*includeBuiltInHelpVersion*/ true);
-    
-    // Parse command line arguments
-    parser.process(app);
 
-    // Initialize Settings (reads JSON) and update log filter threshold
-    // Ensure this happens after parser.process but before heavy work
-    (void)Settings::getInstance(); // construct/load once
-    updateQtLogThresholdFromSettings();
+    int exitCode = 0;
+    {
+        // Set up command line parser
+        QCommandLineParser parser;
+        parser.setApplicationDescription("SeqEyes - Pulseq Sequence Viewer");
+        registerOptions(parser, /*includeBuiltInHelpVersion*/ true);
 
-    // Route verbose prints from ExternalSequence into Qt logging (and therefore the Log window)
-    ExternalSequence::SetPrintFunction(&externalSeqLogPrinter);
-    
-    // Get positional arguments
-    const QStringList args = parser.positionalArguments();
-    QString fileToOpen;
-    if (!args.isEmpty()) {
-        fileToOpen = args.first();
-    }
-    
-    // Create main window
-    MainWindow window;
+        // Parse command line arguments
+        parser.process(app);
 
-    // Apply CLI options to window state (visibility/mode), may be partially deferred until file load
-    window.applyCommandLineOptions(parser);
+        // Resolve headless mode as early as possible before constructing heavy GUI objects.
+        const bool headless = isHeadless(parser);
 
-    // Headless/test paths
-    bool headless = isHeadless(parser);
+        // Initialize Settings (reads JSON) and update log filter threshold
+        // Ensure this happens after parser.process but before heavy work
+        (void)Settings::getInstance(); // construct/load once
+        updateQtLogThresholdFromSettings();
 
-    // Note: No test-specific commands beyond minimal generic flags.
-
-    if (!headless) {
-        // Show window
-        if (parser.isSet("maximized")) {
-            window.showMaximized();
-        } else {
-#ifdef RELEASE
-            window.showMaximized();
-#else
-            window.show();
-#endif
+        // Get positional arguments
+        const QStringList args = parser.positionalArguments();
+        QString fileToOpen;
+        if (!args.isEmpty()) {
+            fileToOpen = args.first();
         }
-        // Known issues dialog on startup (per-user)
-        if (Settings::getInstance().getShowKnownIssuesDialog()) {
-            qWarning().noquote() << "[Known issues] RF/ADC phases are not accurate.";
-            qWarning().noquote() << "[Known issues] UI might be laggy for large sequence; try reducing slices/repetitions/diffusion directions.";
-            QMessageBox msg;
-            msg.setIcon(QMessageBox::Warning);
-            msg.setWindowTitle("Known issues");
-            msg.setText("1) RF/ADC phases are not accurate.\n"
-                        "2) On linux, sometimes the ADC channel rendered strangely, \n"
-                        "e.g. adjcent ADCs are connected, you may need to zoom in to see the ADC correctly rendered.\n"
-                        "3) UI might be laggy for large sequence.\n"
-                        "   Try to make the sequence smaller (reduce #slices, #repetitions, #diffusion directions, etc.).");
-            QCheckBox* cb = new QCheckBox("Do not show again");
-            msg.setCheckBox(cb);
-            msg.addButton(QMessageBox::Ok);
-            msg.exec();
-            if (cb->isChecked()) {
-                Settings::getInstance().setShowKnownIssuesDialog(false);
-            }
-        }
-    }
 
-    // Open file if specified
-    if (!fileToOpen.isEmpty()) {
-        // Silent mode if headless/exit-after-load
-        if (headless) window.getPulseqLoader()->setSilentMode(true);
-        window.openFileFromCommandLine(fileToOpen);
-        // Re-apply options that depend on loaded data (ranges)
-        window.applyCommandLineOptions(parser);
-        
-        if (parser.isSet("capture-snapshots")) {
-            QString outDir = parser.value("capture-snapshots");
-            window.captureSnapshotsAndExit(outDir);
-            // We do NOT return here, we let app.exec() run the singleShot timer inside captureSnapshotsAndExit
-        } else if (parser.isSet("exit-after-load")) {
+        // If headless without file/automation/capture-snapshots, exit before creating MainWindow.
+        if (headless && fileToOpen.isEmpty() && !parser.isSet("automation") && !parser.isSet("capture-snapshots")) {
+            qInstallMessageHandler(nullptr);
             return 0;
         }
-    }
 
-    // Automation scenario (headless)
-    if (parser.isSet("automation")) {
-        const QString scen = parser.value("automation");
-        if (scen.isEmpty()) { qWarning() << "--automation requires a JSON path"; return 2; }
-        int rc = AutomationRunner::run(window, scen);
-        return rc;
-    }
+        {
+        // Create main window
+        MainWindow window;
 
-    // If headless without file or automation or capture-snapshots, just exit
-    if (headless && !parser.isSet("automation") && !parser.isSet("capture-snapshots")) {
-        return 0;
-    }
+        // Apply CLI options to window state (visibility/mode), may be partially deferred until file load
+        window.applyCommandLineOptions(parser);
 
-    return app.exec();
+        // Route verbose ExternalSequence prints into Qt logging only for GUI runs.
+        // In headless CI runs this avoids stressing the Qt log handler path.
+        if (!headless)
+        {
+            ExternalSequence::SetPrintFunction(&externalSeqLogPrinter);
+        }
+
+        // Note: No test-specific commands beyond minimal generic flags.
+
+        if (!headless) {
+            // Show window
+            if (parser.isSet("maximized")) {
+                window.showMaximized();
+            } else {
+#ifdef RELEASE
+                window.showMaximized();
+#else
+                window.show();
+#endif
+            }
+            // Known issues dialog on startup (per-user)
+            if (Settings::getInstance().getShowKnownIssuesDialog()) {
+                qWarning().noquote() << "[Known issues] RF/ADC phases are not accurate.";
+                qWarning().noquote() << "[Known issues] UI might be laggy for large sequence; try reducing slices/repetitions/diffusion directions.";
+                QMessageBox msg;
+                msg.setIcon(QMessageBox::Warning);
+                msg.setWindowTitle("Known issues");
+                msg.setText("1) RF/ADC phases are not accurate.\n"
+                            "2) On linux, sometimes the ADC channel rendered strangely, \n"
+                            "e.g. adjcent ADCs are connected, you may need to zoom in to see the ADC correctly rendered.\n"
+                            "3) UI might be laggy for large sequence.\n"
+                            "   Try to make the sequence smaller (reduce #slices, #repetitions, #diffusion directions, etc.).");
+                QCheckBox* cb = new QCheckBox("Do not show again");
+                msg.setCheckBox(cb);
+                msg.addButton(QMessageBox::Ok);
+                msg.exec();
+                if (cb->isChecked()) {
+                    Settings::getInstance().setShowKnownIssuesDialog(false);
+                }
+            }
+        }
+
+        // Open file if specified
+        if (!fileToOpen.isEmpty()) {
+            // Silent mode if headless/exit-after-load
+            if (headless) window.getPulseqLoader()->setSilentMode(true);
+            window.openFileFromCommandLine(fileToOpen);
+            // Re-apply options that depend on loaded data (ranges)
+            window.applyCommandLineOptions(parser);
+
+            if (parser.isSet("capture-snapshots")) {
+                QString outDir = parser.value("capture-snapshots");
+                window.captureSnapshotsAndExit(outDir);
+                // We do NOT return here, we let app.exec() run the singleShot timer inside captureSnapshotsAndExit
+            } else if (parser.isSet("exit-after-load")) {
+                exitCode = 0;
+            }
+        }
+
+        // Automation scenario (headless)
+        if (exitCode == 0 && parser.isSet("automation")) {
+            const QString scen = parser.value("automation");
+            if (scen.isEmpty()) {
+                qWarning() << "--automation requires a JSON path";
+                exitCode = 2;
+            } else {
+                exitCode = AutomationRunner::run(window, scen);
+            }
+        }
+
+        if (!parser.isSet("exit-after-load") && !parser.isSet("automation"))
+        {
+            exitCode = app.exec();
+        }
+        }
+    }
+    qInstallMessageHandler(nullptr);
+
+    return exitCode;
 }

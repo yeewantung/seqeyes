@@ -116,6 +116,7 @@ public:
 
 public slots:
     void ResetView();
+    void clearAllWaveformData();
     void DrawRFWaveform(const double& dStartTime = 0, double dEndTime = -1);
     void DrawADCWaveform(const double& dStartTime = 0, double dEndTime = -1);
     void DrawGWaveform(const double& dStartTime = 0, double dEndTime = -1);
