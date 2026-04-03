@@ -115,15 +115,7 @@ def run_one(exe: Path, seq_path: Path):
         cmd = [str(exe), "--automation", scen_path]
 
         # Stream stdout and wait for natural exit (measure end-to-end latency on the real interaction path)
-        marker_path = None
-        marker_lines = []
-        env = os.environ.copy()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".lifecycle.log") as mf:
-            marker_path = mf.name
-        env["SEQEYES_LIFECYCLE_MARKER_FILE"] = marker_path
-        env["SEQEYES_LIFECYCLE_MARKERS"] = "1"
-
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
         out_lines = []
         err_lines = []
         zoom_ms = None
@@ -146,15 +138,12 @@ def run_one(exe: Path, seq_path: Path):
         if proc.stderr is not None:
             err_lines = proc.stderr.read().splitlines()
         rc = proc.wait()
-        if marker_path and os.path.exists(marker_path):
-            marker_lines = Path(marker_path).read_text(encoding="utf-8", errors="replace").splitlines()
-            os.unlink(marker_path)
-        return rc, "".join(out_lines), "\n".join(err_lines), zoom_ms, marker_lines
+        return rc, "".join(out_lines), "\n".join(err_lines), zoom_ms
     else:
         cmd = [str(exe), "--seq", str(seq_abs)]
         p = subprocess.run(cmd, capture_output=True, text=True)
         zoom_ms = parse_zoom_ms(p.stdout)
-        return p.returncode, p.stdout, p.stderr, zoom_ms, []
+        return p.returncode, p.stdout, p.stderr, zoom_ms
 
 
 DEFAULT_TEST_DIR = Path(__file__).resolve().parents[0]
@@ -233,30 +222,28 @@ def main():
         last_rc = 0
         last_out = ""
         last_err = ""
-        last_markers = []
         
         for i in range(count):
             label = f"Iteration {i+1}/{count}" if count > 1 else "Running"
-            rc, out, err, zoom_ms, markers = run_one(exe, seq_path)
+            rc, out, err, zoom_ms = run_one(exe, seq_path)
             last_rc, last_out, last_err = rc, out, err
-            last_markers = markers
             if rc != 0:
-                return rc, out, err, None, [], markers
+                return rc, out, err, None, []
             if zoom_ms is not None:
                 times.append(zoom_ms)
                 if count > 1:
                     print(f"    {label}: {zoom_ms:.2f} ms")
             else:
-                return 1, out, err, None, times, markers
+                return 1, out, err, None, times
         
         median_ms = statistics.median(times) if times else None
-        return last_rc, last_out, last_err, median_ms, times, last_markers
+        return last_rc, last_out, last_err, median_ms, times
 
     # Single-file mode
     if args.seq is not None:
         seq_abs = args.seq.resolve()
         print("Running single file:", seq_abs)
-        rc, out, err, median_ms, all_times, marker_lines = run_multi(exe, seq_abs, args.repeat, args.warmup)
+        rc, out, err, median_ms, all_times = run_multi(exe, seq_abs, args.repeat, args.warmup)
         sys.stdout.write(out)
         sys.stderr.write(err)
         hexv, reason = decode_exit(rc)
@@ -272,8 +259,6 @@ def main():
             if median_ms is not None:
                 msg += f"; median={median_ms:.2f} ms then crash"
             print(msg)
-            for line in marker_lines:
-                print(f"  [LIFECYCLE] {line}")
             overall_fail = 1
         elif median_ms is None:
             print("[FAIL] Did not find valid ZOOM_MS in output")
@@ -297,7 +282,7 @@ def main():
         for seq_file in seq_files:
             seq_abs = seq_file.resolve()
             print(f"Testing {seq_abs.name}...")
-            rc, out, err, median_ms, all_times, marker_lines = run_multi(exe, seq_abs, args.repeat, args.warmup)
+            rc, out, err, median_ms, all_times = run_multi(exe, seq_abs, args.repeat, args.warmup)
             hexv, reason = decode_exit(rc)
             entry = {"file": str(seq_abs), "zoom_ms": median_ms, "exit": rc, "runs": all_times}
             if hexv:
@@ -311,8 +296,6 @@ def main():
                 if median_ms is not None:
                     line += f"; median={median_ms:.2f} ms then crash"
                 print(line)
-                for marker in marker_lines:
-                    print(f"  [LIFECYCLE] {marker}")
                 overall_fail = 1
                 continue
             if median_ms is None:

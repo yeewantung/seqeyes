@@ -15,7 +15,6 @@
 #include <QFileInfo>
 #include <QFileDialog>
 #include <QFile>
-#include <QTextStream>
 #include <QMessageBox>
 #include <QDebug>
 #include <QLabel>
@@ -33,7 +32,6 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QImage>
-#include <QCoreApplication>
 #include <QStyle>
 #include <QVector>
 #include <cmath>
@@ -41,35 +39,6 @@
 #include <algorithm>
 #include <QPainter>
 #include <cmath>
-
-namespace {
-void emitMainWindowLifecycleMarker(const char* phase)
-{
-    const QString markerPath = qEnvironmentVariable("SEQEYES_LIFECYCLE_MARKER_FILE");
-    const bool enabled = qEnvironmentVariableIsSet("SEQEYES_LIFECYCLE_MARKERS") || !markerPath.isEmpty();
-    if (!enabled)
-        return;
-
-    const qint64 pid = QCoreApplication::applicationPid();
-    const QString line = QString("[LIFECYCLE] pid=%1 phase=%2")
-                             .arg(pid)
-                             .arg(QString::fromLatin1(phase));
-    const QByteArray bytes = line.toUtf8();
-    fprintf(stderr, "%s\n", bytes.constData());
-    fflush(stderr);
-
-    if (!markerPath.isEmpty())
-    {
-        QFile markerFile(markerPath);
-        if (markerFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
-        {
-            QTextStream ts(&markerFile);
-            ts << line << "\n";
-            ts.flush();
-        }
-    }
-}
-}
 
 // Lightweight overlay widget for drawing trajectory crosshair without forcing full plot replots
 class TrajectoryCrosshairOverlay : public QWidget
@@ -347,8 +316,6 @@ void MainWindow::clearLoadedFileTitle()
 
 MainWindow::~MainWindow()
 {
-    emitMainWindowLifecycleMarker("mainwindow_dtor_begin");
-
     // Ensure cleanup order: delete PulseqLoader before UI widgets it references
     // to avoid accessing destroyed UI elements during loader's ClearPulseqCache.
     SAFE_DELETE(m_pulseqLoader);
@@ -370,9 +337,7 @@ MainWindow::~MainWindow()
     //SAFE_DELETE(m_pCoordLabel);
     //SAFE_DELETE(m_pPnsStatusLabel);
     //SAFE_DELETE(m_settingsDialog);
-    emitMainWindowLifecycleMarker("mainwindow_dtor_before_delete_ui");
     delete ui;
-    emitMainWindowLifecycleMarker("mainwindow_dtor_end");
 }
 
 void MainWindow::updatePnsStatusIndicator()
