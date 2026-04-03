@@ -354,11 +354,11 @@ MainWindow::~MainWindow()
     SAFE_DELETE(m_pulseqLoader);
 
     // Handlers are QObjects parented to MainWindow and will be deleted automatically.
-    SAFE_DELETE(m_pVersionLabel);
-    SAFE_DELETE(m_pProgressBar);
-    SAFE_DELETE(m_pCoordLabel);
-    SAFE_DELETE(m_pPnsStatusLabel);
-    SAFE_DELETE(m_settingsDialog);
+    //SAFE_DELETE(m_pVersionLabel);
+    //SAFE_DELETE(m_pProgressBar);
+    //SAFE_DELETE(m_pCoordLabel);
+    //SAFE_DELETE(m_pPnsStatusLabel);
+    //SAFE_DELETE(m_settingsDialog);
     emitMainWindowLifecycleMarker("mainwindow_dtor_before_delete_ui");
     delete ui;
     emitMainWindowLifecycleMarker("mainwindow_dtor_end");
