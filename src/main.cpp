@@ -403,48 +403,52 @@ int main(int argc, char *argv[])
     app.setApplicationVersion(SEQEYES_APP_VERSION_PLAIN);
     // Force LTR across the whole app to avoid inverted scrollbars/RTL behavior on some platforms/styles.
     app.setLayoutDirection(Qt::LeftToRight);
-    
-    // Set up command line parser
-    QCommandLineParser parser;
-    parser.setApplicationDescription("SeqEyes - Pulseq Sequence Viewer");
-    registerOptions(parser, /*includeBuiltInHelpVersion*/ true);
-    
-    // Parse command line arguments
-    parser.process(app);
-
-    // Resolve headless mode as early as possible before constructing heavy GUI objects.
-    const bool headless = isHeadless(parser);
-    emitHeadlessPhase(headless, "parsed_args");
-    emitLifecyclePhase("parsed_args");
-
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, []() {
-        emitLifecyclePhase("about_to_quit");
-    });
-
-    // Initialize Settings (reads JSON) and update log filter threshold
-    // Ensure this happens after parser.process but before heavy work
-    (void)Settings::getInstance(); // construct/load once
-    updateQtLogThresholdFromSettings();
-
-    // Get positional arguments
-    const QStringList args = parser.positionalArguments();
-    QString fileToOpen;
-    if (!args.isEmpty()) {
-        fileToOpen = args.first();
-    }
-
-    // If headless without file/automation/capture-snapshots, exit before creating MainWindow.
-    if (headless && fileToOpen.isEmpty() && !parser.isSet("automation") && !parser.isSet("capture-snapshots")) {
-        emitHeadlessPhase(headless, "early_exit_no_work");
-        emitLifecyclePhase("early_exit_no_work");
-        emitLifecyclePhase("before_qt_message_handler_reset");
-        qInstallMessageHandler(nullptr);
-        emitLifecyclePhase("after_qt_message_handler_reset");
-        return 0;
-    }
 
     int exitCode = 0;
     {
+        emitPostExitPhaseRaw("parser_scope_begin_raw");
+
+        // Set up command line parser
+        QCommandLineParser parser;
+        parser.setApplicationDescription("SeqEyes - Pulseq Sequence Viewer");
+        registerOptions(parser, /*includeBuiltInHelpVersion*/ true);
+
+        // Parse command line arguments
+        parser.process(app);
+
+        // Resolve headless mode as early as possible before constructing heavy GUI objects.
+        const bool headless = isHeadless(parser);
+        emitHeadlessPhase(headless, "parsed_args");
+        emitLifecyclePhase("parsed_args");
+
+        QObject::connect(&app, &QCoreApplication::aboutToQuit, []() {
+            emitLifecyclePhase("about_to_quit");
+        });
+
+        // Initialize Settings (reads JSON) and update log filter threshold
+        // Ensure this happens after parser.process but before heavy work
+        (void)Settings::getInstance(); // construct/load once
+        updateQtLogThresholdFromSettings();
+
+        // Get positional arguments
+        const QStringList args = parser.positionalArguments();
+        QString fileToOpen;
+        if (!args.isEmpty()) {
+            fileToOpen = args.first();
+        }
+
+        // If headless without file/automation/capture-snapshots, exit before creating MainWindow.
+        if (headless && fileToOpen.isEmpty() && !parser.isSet("automation") && !parser.isSet("capture-snapshots")) {
+            emitHeadlessPhase(headless, "early_exit_no_work");
+            emitLifecyclePhase("early_exit_no_work");
+            emitLifecyclePhase("before_qt_message_handler_reset");
+            qInstallMessageHandler(nullptr);
+            emitLifecyclePhase("after_qt_message_handler_reset");
+            emitPostExitPhaseRaw("before_parser_scope_end_raw");
+            return 0;
+        }
+
+        {
         // Create main window
         emitHeadlessPhase(headless, "before_mainwindow_construct");
         emitLifecyclePhase("before_mainwindow_construct");
@@ -542,12 +546,22 @@ int main(int argc, char *argv[])
         }
 
         emitLifecyclePhase("before_mainwindow_scope_end");
+        }
+
+        emitPostExitPhaseRaw("after_mainwindow_scope_end_raw_pre");
+        emitLifecyclePhase("after_mainwindow_scope_end");
+        emitPostExitPhaseRaw("after_mainwindow_scope_end_raw_post");
+
+        emitLifecyclePhase("before_parser_scope_end");
+        emitPostExitPhaseRaw("before_parser_scope_end_raw");
     }
 
-    emitLifecyclePhase("after_mainwindow_scope_end");
+    emitPostExitPhaseRaw("after_parser_scope_end_raw");
     emitLifecyclePhase("before_qt_message_handler_reset");
+    emitPostExitPhaseRaw("before_qt_message_handler_reset_raw");
     qInstallMessageHandler(nullptr);
     emitLifecyclePhase("after_qt_message_handler_reset");
+    emitPostExitPhaseRaw("before_main_return_raw");
 
     return exitCode;
 }
