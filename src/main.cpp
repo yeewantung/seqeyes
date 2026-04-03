@@ -24,8 +24,14 @@
 #include <QTextStream>
 #include <QFileInfo>
 #include <QFile>
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+#include <string>
 #ifdef _WIN32
 #  include <Windows.h>
+#else
+#  include <unistd.h>
 #endif
 
 static void appendMarkerLineToFiles(const QString& line)
@@ -70,6 +76,64 @@ static void emitLifecyclePhase(const char* phase, const QString& detail = QStrin
     fflush(stderr);
     appendMarkerLineToFiles(line);
 }
+
+static void appendPostExitLineToEnvPath(const char* path, const std::string& line)
+{
+    if (!path || !*path)
+        return;
+
+    FILE* f = fopen(path, "ab");
+    if (!f)
+        return;
+    fwrite(line.data(), 1, line.size(), f);
+    fwrite("\n", 1, 1, f);
+    fflush(f);
+    fclose(f);
+}
+
+static void emitPostExitPhaseRaw(const char* phase)
+{
+#ifdef _WIN32
+    const unsigned long pid = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    const unsigned long pid = static_cast<unsigned long>(getpid());
+#endif
+
+    char line[256];
+    snprintf(line, sizeof(line), "[POST_EXIT] pid=%lu phase=%s", pid, phase ? phase : "unknown");
+
+    fputs(line, stderr);
+    fputc('\n', stderr);
+    fflush(stderr);
+
+    const char* lifecyclePath = std::getenv("SEQEYES_LIFECYCLE_MARKER_FILE");
+    const char* headlessPath = std::getenv("SEQEYES_HEADLESS_MARKER_FILE");
+    const std::string text(line);
+
+    appendPostExitLineToEnvPath(lifecyclePath, text);
+    if (!lifecyclePath || !headlessPath || std::strcmp(lifecyclePath, headlessPath) != 0)
+        appendPostExitLineToEnvPath(headlessPath, text);
+}
+
+static void atExitMarkerOne()
+{
+    emitPostExitPhaseRaw("atexit_marker_1");
+}
+
+static void atExitMarkerTwo()
+{
+    emitPostExitPhaseRaw("atexit_marker_2");
+}
+
+struct PostExitStaticDtorMarker
+{
+    ~PostExitStaticDtorMarker()
+    {
+        emitPostExitPhaseRaw("static_dtor_marker");
+    }
+};
+
+static PostExitStaticDtorMarker g_postExitStaticDtorMarker;
 
 // Use a semantic minimum level rather than QtMsgType ordering (QtMsgType values are non-monotonic)
 static Settings::LogLevel g_minLogLevel = Settings::LogLevel::Critical;
@@ -291,6 +355,9 @@ static void cliWriteText(const QString& text, bool toStderr = false)
 
 int main(int argc, char *argv[])
 {
+    std::atexit(&atExitMarkerOne);
+    std::atexit(&atExitMarkerTwo);
+
     // CLI help/version should never create GUI windows.
     // On Windows, GUI-subsystem apps may show a message box for --help/--version; print to stdout and exit instead.
     {
